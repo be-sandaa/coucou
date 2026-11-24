@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -129,8 +130,8 @@ type file struct {
 	Chains []struct {
 		Chance *int `toml:"chance"` // nil is 100: a chain that never plays is not what leaving it out means
 		Steps  []struct {
-			Sound string `toml:"sound"`
-			After int    `toml:"after"`
+			Sound string  `toml:"sound"`
+			After float64 `toml:"after"` // seconds, to the millisecond: a breath between two clips is well under one
 		} `toml:"steps"`
 	} `toml:"chains"`
 	Links []struct {
@@ -309,10 +310,10 @@ func (f file) chains() ([]sounds.Chain, error) {
 			if s.Sound == "" {
 				return nil, fmt.Errorf("%s.steps[%d]: sound is empty", key, j)
 			}
-			if err := inRange(fmt.Sprintf("%s.steps[%d].after", key, j), s.After, MaxAfter); err != nil {
-				return nil, err
+			if !(s.After >= 0 && s.After <= MaxAfter) { // also refuses NaN
+				return nil, fmt.Errorf("%s.steps[%d].after %g is outside 0-%d", key, j, s.After, MaxAfter)
 			}
-			steps[j] = sounds.Step{Sound: s.Sound, After: time.Duration(s.After) * time.Second}
+			steps[j] = sounds.Step{Sound: s.Sound, After: time.Duration(math.Round(s.After*1000)) * time.Millisecond}
 		}
 		if openers[steps[0].Sound] {
 			return nil, fmt.Errorf("%s: %q already opens another chain", key, steps[0].Sound)

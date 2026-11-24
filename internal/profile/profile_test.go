@@ -70,7 +70,7 @@ chance = 80
 steps  = [{ sound = "knock" }, { sound = "who", after = 2 }, { sound = "rim" }]
 
 [[chains]]
-steps = [{ sound = "drum" }, { sound = "clap" }]
+steps = [{ sound = "drum" }, { sound = "clap", after = 0.35 }]
 
 [[links]]
 from = "snare"
@@ -93,7 +93,7 @@ online   = "dnd"
 		Chains: []sounds.Chain{
 			{Chance: 80, Steps: []sounds.Step{{Sound: "knock"}, {Sound: "who", After: 2 * time.Second}, {Sound: "rim"}}},
 			// Left out, a chain's chance is 100, not 0: listing one means wanting it to play.
-			{Chance: 100, Steps: []sounds.Step{{Sound: "drum"}, {Sound: "clap"}}},
+			{Chance: 100, Steps: []sounds.Step{{Sound: "drum"}, {Sound: "clap", After: 350 * time.Millisecond}}},
 		},
 		Links:    sounds.Links{"snare": {"boo": 70, "sad-trombone": 30}},
 		Status:   Status{Text: "🖤 lurking", Activity: discord.ActivityTypeListening, Online: discord.OnlineStatusDND},
@@ -132,6 +132,9 @@ func TestInvalidProfiles(t *testing.T) {
 		{"chain chance above 100", "id = \"x\"\n[[chains]]\nchance = 101\nsteps = [{ sound = \"a\" }, { sound = \"b\" }]"},
 		{"chain step without a sound", "id = \"x\"\n[[chains]]\nsteps = [{ sound = \"a\" }, { after = 1 }]"},
 		{"chain gap above 20", "id = \"x\"\n[[chains]]\nsteps = [{ sound = \"a\" }, { sound = \"b\", after = 21 }]"},
+		{"chain gap just above 20", "id = \"x\"\n[[chains]]\nsteps = [{ sound = \"a\" }, { sound = \"b\", after = 20.001 }]"},
+		{"chain gap negative", "id = \"x\"\n[[chains]]\nsteps = [{ sound = \"a\" }, { sound = \"b\", after = -0.2 }]"},
+		{"chain gap nan", "id = \"x\"\n[[chains]]\nsteps = [{ sound = \"a\" }, { sound = \"b\", after = nan }]"},
 		{"unknown chain step key", "id = \"x\"\n[[chains]]\nsteps = [{ sound = \"a\" }, { sound = \"b\", delay = 1 }]"},
 		{"two chains, one opener", "id = \"x\"\n[[chains]]\nsteps = [{ sound = \"a\" }, { sound = \"b\" }]\n[[chains]]\nsteps = [{ sound = \"a\" }, { sound = \"c\" }]"},
 		{"link without from", "id = \"x\"\n[[links]]\nto = { b = 1 }"},

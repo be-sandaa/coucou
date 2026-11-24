@@ -30,7 +30,7 @@ encore   = 0     # % of visits that come back for a second sound; 0-50
 chance = 80   # % of the time the rest follow the first step; 0-100, default 100
 steps  = [
   { sound = "knock" },
-  { sound = "whos_there", after = 2 },   # seconds of silence before it, still in the channel; 0-20
+  { sound = "whos_there", after = 2 },   # seconds of silence before it, still in the channel; 0-20, fractions to the ms (0.4)
   { sound = "rimshot" },                 # no after: straight back to back
 ]
 
