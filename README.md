@@ -24,10 +24,10 @@ before anyone can react. Then everybody blames each other.
 
    🎲  the 5-minute roll comes up
    🪞  CouCou looks into her mirror… et hop !
-   🍺  Lorelei joined
+   💋  Colette joined
    ⋯   (a long, suspicious silence)
-   🍺  ▶ Prost!
-   🍺  Lorelei left
+   💋  ▶ Coucou~!
+   💋  Colette left
 
    💬  sam: alex
    💬  alex: that was NOT me
