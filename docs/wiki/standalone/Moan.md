@@ -1,19 +1,23 @@
-# 😳 Moan
+# 🫦 Moan
 
-![Moan's banner](https://cdn.discordapp.com/banners/941362698472546404/3fc5687e4b03047e36e01ba42980d749.webp?size=1024&animated=true)
+![Moan's banner](https://raw.githubusercontent.com/wiki/be-sandaa/coucou/images/moan-banner.jpg)
 
-<img src="https://cdn.discordapp.com/avatars/941362698472546404/a_2cb711c4b6100a61c29d15d2dc843a58.webp?size=256&animated=true" alt="Moan" width="128" align="right">
+<img src="https://raw.githubusercontent.com/wiki/be-sandaa/coucou/images/moan-avatar.jpg" alt="Moan" width="128" align="right">
 
-> Drops into your busiest voice channel, lets out one very unfortunate moan, and vanishes before anyone can explain it.
+> Mm? A romance novelist drifts into your voice channel, gets lost in her own chapter, lets out one very unmistakable moan, and asks where she was.
 
-Moan is a business student at a university, in her early 20s, and every class she has is a call: online lectures, group projects, tutorials. She's always on a call. She always thinks she's muted. She never is.
+**18+.** Every sound she makes is a moan, so add her only to servers where that's welcome.
 
-- **Loves:** oversized hoodies, cosy games, the mute button (in theory), and leaving a call the moment it ends.
-- **Can't stand:** being looked at, "wait, say that again?", and the half-second before she realises her mic was on the whole time.
-- **Quirks:** blushes before anything has even happened. Covers her mouth by reflex. Has typed "sorry, wrong window" more times than anyone alive.
+Mona Lane is 25 and writes steamy romance novels from her bed in a sunny old house in Savannah, Georgia, in an oversized sweater she never explains. She writes the way other people breathe, and her scenes arrive whenever they like: at the coffee machine, in the bath, mid-sentence in the queue at the bank. Her body has always been louder than her manners. A hand at the back of her neck, a hot shower or the first sip of a good coffee, and the sound is out before she has decided anything. She stopped apologising years ago. Now she just smiles, tucks her hair behind her ear and asks where she was. Her readers know her as Mona Lane; everyone else, every voice channel she has ever drifted into included, knows her as Moan.
+
+![Moan daydreaming in her window seat](https://raw.githubusercontent.com/wiki/be-sandaa/coucou/images/moan-wide.jpg)
+
+- **Loves:** a slow chapter, the window seat in the afternoon sun, oversized knits, the first sip of coffee, and anyone who doesn't ask what she was thinking about.
+- **Can't stand:** a plot that rushes, being interrupted mid-scene, cold coffee, and anyone who acts surprised.
+- **Quirks:** drifts off mid-sentence into a scene only she can see. Shivers when anything touches the back of her neck. Reads her own chapter aloud and has to stop. Fans herself with manuscript pages. Snaps back with a lazy smile: "sorry, where was I?"
 
 | Profile id | Status | Colour |
 |---|---|---|
-| `moan` | 😳 forgot to mute again | `#E86A92` |
+| `moan` | 🫦 lost in a chapter. Mm? | `#E86A92` |
 
 **[Add Moan to your server](https://discord.com/oauth2/authorize?client_id=941362698472546404&scope=bot+applications.commands&permissions=70274048)** as a bot of its own.

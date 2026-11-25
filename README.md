@@ -94,7 +94,7 @@ follows Discord's [Terms of Service](https://discord.com/terms) and
 | Bot | What it does | Maintainer | |
 |---|---|---|---|
 | 💨 [Gus](https://github.com/be-sandaa/coucou/wiki/Gus) | Wanders in, farts, burps, crunches chips into the mic, and leaves you all blaming each other. | [@be-sandaa](https://github.com/be-sandaa) | [Invite](https://discord.com/oauth2/authorize?client_id=1286266858642870333&scope=bot+applications.commands&permissions=70274048) |
-| 😳 [Moan](https://github.com/be-sandaa/coucou/wiki/Moan) | Lets out one very unfortunate moan, and vanishes before anyone can explain it. | [@be-sandaa](https://github.com/be-sandaa) | [Invite](https://discord.com/oauth2/authorize?client_id=941362698472546404&scope=bot+applications.commands&permissions=70274048) |
+| 🫦 [Moan](https://github.com/be-sandaa/coucou/wiki/Moan) | Drifts in, gets lost in her own chapter, lets out one very unmistakable moan, and asks where she was. | [@be-sandaa](https://github.com/be-sandaa) | [Invite](https://discord.com/oauth2/authorize?client_id=941362698472546404&scope=bot+applications.commands&permissions=70274048) |
 | *yours here* | | | |
 
 ## 🚀 Quick start
