@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/wiki/images/colette-twirl.jpg" alt="Colette, with cherry-red streaks in her dark hair, twirling and laughing in her Paris bedroom between a bed heaped with costumes and a dress form" width="720">
+  <img src="docs/wiki/images/colette-wide.jpg" alt="Colette, with cherry-red streaks in her dark hair, leaning back against her desk in her Paris bedroom beside a dress form, a bed heaped with costumes on the left" width="720">
 </p>
 
 <p align="center"><b>It waits in the wings. Then, from nowhere: <i>coucou!</i></b></p>
@@ -24,10 +24,10 @@ before anyone can react. Then everybody blames each other.
 
    🎲  the 5-minute roll comes up
    🧵  Colette takes a costume off the rail… et hop !
-   🍷  Vivienne joined
+   🍷  Victoria joined
    ⋯   (a long, suspicious silence)
    🍷  ▶ Ahem.
-   🍷  Vivienne left
+   🍷  Victoria left
 
    💬  sam: alex
    💬  alex: that was NOT me
@@ -54,11 +54,11 @@ Pigalle cabaret, and tries every costume on after closing, "for the fit". Your s
 room: she takes someone else's costume off the rail and drops into your voice channel as them, or
 pops out from behind the curtain as herself with a sing-song "coucou!".
 
-<p align="center">💋 🌺 🖤 📚 💼 💜 🍷</p>
+<p align="center">💋 🌺 🖤 📚 💜 🍷</p>
 
 Each server picks who she dresses up as with `/character`: a Latina who purrs in Spanglish, a goth
 who says something mean she definitely means nicely, a shy librarian who reads you her spicy novel
-by accident, a New York exec who names her price… → [all of them](https://github.com/be-sandaa/coucou/wiki/Characters). Want more than one
+by accident, a rich, strict stepmom who runs her house like a boardroom… → [all of them](https://github.com/be-sandaa/coucou/wiki/Characters). Want more than one
 in the same server? Each also runs as a bot of its own, and a couple, like Gus 💨, only ever run as
 themselves → [standalone bots](https://github.com/be-sandaa/coucou/wiki/Standalone-bots).
 
