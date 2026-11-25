@@ -14,7 +14,7 @@ sounds, and coucou is what runs it.
 
 ## Characters
 
-- **[Characters](Characters)**: who CouCou, the bot run from here, can become.
+- **[Characters](Characters)**: who Colette, the bot run from here, can dress up as.
 - **[Standalone bots](Standalone-bots)**: the bots run from here only as themselves.
 
 ## Reference

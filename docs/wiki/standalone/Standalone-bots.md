@@ -1,6 +1,6 @@
 # Standalone bots
 
-Bots run from here that CouCou does not shift into: each runs only as its own bot, with its own
+Bots run from here that Colette does not dress up as: each runs only as its own bot, with its own
 Discord app and sounds. See [Characters](Characters) for the ones she does.
 
 | | | Bot | | 18+ | |

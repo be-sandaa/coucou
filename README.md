@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://cdn.discordapp.com/banners/1557651122460557384/b0ed51f983bbdcf8ccc4554637000b1c.webp?size=1024&animated=true" alt="CouCou, with long pastel rainbow hair, winking and holding up a gilded hand mirror in a Paris dressing room full of gowns at sunset" width="720">
+  <img src="docs/wiki/images/colette-twirl.jpg" alt="Colette, with cherry-red streaks in her dark hair, twirling and laughing in her Paris bedroom between a bed heaped with costumes and a dress form" width="720">
 </p>
 
 <p align="center"><b>It waits in the wings. Then, from nowhere: <i>coucou!</i></b></p>
@@ -23,11 +23,11 @@ before anyone can react. Then everybody blames each other.
 🔊 General ·  👤 alex   👤 sam   👤 robin
 
    🎲  the 5-minute roll comes up
-   🪞  CouCou looks into her mirror… et hop !
-   💋  Colette joined
+   🧵  Colette takes a costume off the rail… et hop !
+   🍷  Vivienne joined
    ⋯   (a long, suspicious silence)
-   💋  ▶ Coucou~!
-   💋  Colette left
+   🍷  ▶ Ahem.
+   🍷  Vivienne left
 
    💬  sam: alex
    💬  alex: that was NOT me
@@ -47,31 +47,32 @@ before anyone can react. Then everybody blames each other.
 | 📊 **Stats** | Charts, heatmaps and leaderboards of who suffers most. |
 | 🙈 **Escape hatches** | `/optout` for a person, `/quiet` for a server, both on a schedule if you like. |
 
-## 🪞 Meet CouCou
+## 💋 Meet Colette
 
-CouCou is the bot run from here, and she has no voice of her own. Until she takes on a shape she can
-only smile, wink and wave; so she looks into her gilded hand mirror, it shows her someone else, and
-she drops into your voice channel as them.
+Colette is the bot run from here: a costume student who works nights in the wardrobe of a small
+Pigalle cabaret, and tries every costume on after closing, "for the fit". Your server is her fitting
+room: she takes someone else's costume off the rail and drops into your voice channel as them, or
+pops out from behind the curtain as herself with a sing-song "coucou!".
 
-<p align="center">💌 🌺 💋 🎮 🤠 🖤 🍺 📚 🕶️ 👑 ☀️ 💼 💜 🍷</p>
+<p align="center">💋 🌺 🖤 📚 💼 💜 🍷</p>
 
-Each server picks who she becomes with `/character`: a florist who asks who you were talking to, a
-tsundere who insults your aim, a beer-garden waitress with two Maß in each hand, a privacy engineer
-who warns you about your password… → [all of them](https://github.com/be-sandaa/coucou/wiki/Characters). Want more than one
+Each server picks who she dresses up as with `/character`: a Latina who purrs in Spanglish, a goth
+who says something mean she definitely means nicely, a shy librarian who reads you her spicy novel
+by accident, a New York exec who names her price… → [all of them](https://github.com/be-sandaa/coucou/wiki/Characters). Want more than one
 in the same server? Each also runs as a bot of its own, and a couple, like Gus 💨, only ever run as
 themselves → [standalone bots](https://github.com/be-sandaa/coucou/wiki/Standalone-bots).
 
-**[Add CouCou to your server](https://discord.com/oauth2/authorize?client_id=1557651122460557384&scope=bot+applications.commands&permissions=70274048)**, or any character on her own from [her page](https://github.com/be-sandaa/coucou/wiki/Characters).
+**[Add Colette to your server](https://discord.com/oauth2/authorize?client_id=1557651122460557384&scope=bot+applications.commands&permissions=70274048)**, or any character on her own from [her page](https://github.com/be-sandaa/coucou/wiki/Characters).
 
 A few things she will not tell you:
 
-- Her eyes are gold and violet. She claims they were both gold once, and won't say what happened.
-- She has been asked "wait, who are you?" more times than anyone alive. She has never answered.
-- Her mirror has a crack in one corner. She says it's from the last time someone tried to look in it.
+- Her graduate collection is meant to be her own. Every sketch turns into somebody else's costume.
+- She counts "un, deux, trois" under her breath before anything brave, even a voice channel.
+- Whoever she is dressed as, the cherry-red streaks and the red soles stay. That's how you catch her.
 
 ## 🎭 Bring your own bot
 
-The project, coucou, isn't a character; CouCou is just the one run from here. Give it one and you have a new bot: one binary, your character, your
+The project, coucou, isn't a character; Colette is just the one run from here. Give it one and you have a new bot: one binary, your character, your
 Discord app, your sounds.
 
 1. **Write the character.** A `profile.toml`: a name, an emoji, a status, lore for `/about`, and how
@@ -117,7 +118,7 @@ walks through both in three steps.
 | 📦 | [Installation](https://github.com/be-sandaa/coucou/wiki/Installation) | binary, systemd, container, Compose, Helm |
 | ▶️ | [Running the bot](https://github.com/be-sandaa/coucou/wiki/Running-the-bot) | the Discord app, sounds, first start, "is it working?" |
 | ⚙️ | [Configuration](https://github.com/be-sandaa/coucou/wiki/Configuration) | every key in `config.toml` |
-| 🪞 | [Characters](https://github.com/be-sandaa/coucou/wiki/Characters) | who CouCou can become, and the standalone bots |
+| 🪞 | [Characters](https://github.com/be-sandaa/coucou/wiki/Characters) | who Colette can dress up as, and the standalone bots |
 | 🎭 | [Profile](https://github.com/be-sandaa/coucou/wiki/Profile) | the character, its status, defaults, chains and links |
 | 🔊 | [Sounds](https://github.com/be-sandaa/coucou/wiki/Sounds) | encoding, naming, tags, sound emojis |
 | 💬 | [Commands](https://github.com/be-sandaa/coucou/wiki/Commands) | every slash command and who may run it |
