@@ -1,15 +1,15 @@
 # Characters
 
-![CouCou's banner](https://cdn.discordapp.com/banners/1557651122460557384/b0ed51f983bbdcf8ccc4554637000b1c.webp?size=1024&animated=true)
+![Colette's banner](https://raw.githubusercontent.com/wiki/be-sandaa/coucou/images/colette-banner.jpg)
 
-<img src="https://cdn.discordapp.com/avatars/1557651122460557384/c635a7edfa9523a72197be54730228fd.webp?size=256&animated=true" alt="CouCou" width="128" align="right">
+<img src="https://raw.githubusercontent.com/wiki/be-sandaa/coucou/images/colette-avatar.jpg" alt="Colette" width="128" align="right">
 
-**CouCou** is the bot run from here: a shapeshifter with no voice of her own. In each server she
-becomes one of these characters, with their name, face and sounds, and the server picks who with
-`/character`. *Et hop !* Each of them can also run as a bot of its own, for a server that wants
-several at once.
+**[Colette](Colette)** is the bot run from here: a costume student who tries on everyone's look. In
+each server she dresses up as one of these characters, with their name, face and sounds, and the
+server picks who with `/character`. *Et hop !* Each of them can also run as a bot of its own, for a
+server that wants several at once.
 
-**[Add CouCou to your server](https://discord.com/oauth2/authorize?client_id=1557651122460557384&scope=bot+applications.commands&permissions=70274048)** and switch between them with `/character`.
+**[Add Colette to your server](https://discord.com/oauth2/authorize?client_id=1557651122460557384&scope=bot+applications.commands&permissions=70274048)** and switch between them with `/character`.
 
 The profile id on each page is the character's folder, `profiles/<id>/`.
 
@@ -28,13 +28,13 @@ The profile id on each page is the character's folder, `profiles/<id>/`.
 The bots the maintainer of this repository runs. Data requests for these go through the
 [Remove my data](https://github.com/be-sandaa/coucou/issues/new?template=remove_my_data.yml) issue;
 any other bot built on coucou is run by someone else, and only they can reach its data.
-Who they are: CouCou, the characters above, and the [standalone bots](Standalone-bots).
+Who they are: Colette, the characters above, and the [standalone bots](Standalone-bots).
 
 | Bot | Application ID |
 |---|---|
 | Caricia | `1555145751670161458` |
-| Colette | `1555471582368108596` |
-| CouCou | `1557651122460557384` |
+| Colette, as herself | `1555471582368108596` |
+| Colette, dressing up (`/character`) | `1557651122460557384` |
 | Gus | `1286266858642870333` |
 | Lenore | `1555149085244260382` |
 | Moan | `941362698472546404` |
