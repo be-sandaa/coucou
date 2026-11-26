@@ -106,12 +106,13 @@ func Shutdown(ctx context.Context) {
 }
 
 // Play joins, optionally sits in silence, plays each clip in turn on the one connection, leaves.
-// Always leaves. Returns the stage it failed in ("join", "suspense", "play") for the stats table.
-func Play(ctx context.Context, client *bot.Client, guild, channel snowflake.ID, clips []Clip, o Opts) (stage string, err error) { //nolint:gocyclo // one error branch per join/dave/suspense/play stage; splitting hides the sequence
+// Always leaves. Returns the stage it failed in ("join", "suspense", "play") for the stats table, and
+// how many clips finished.
+func Play(ctx context.Context, client *bot.Client, guild, channel snowflake.ID, clips []Clip, o Opts) (stage string, played int, err error) { //nolint:gocyclo // one error branch per join/dave/suspense/play stage; splitting hides the sequence
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	if _, loaded := busy.LoadOrStore(guild, cancel); loaded {
-		return StageJoin, ErrBusy
+		return StageJoin, 0, ErrBusy
 	}
 	defer busy.Delete(guild)
 
@@ -119,7 +120,7 @@ func Play(ctx context.Context, client *bot.Client, guild, channel snowflake.ID, 
 	var st *stream
 	if !o.Silent {
 		if st, err = load(clips); err != nil {
-			return StagePlay, err
+			return StagePlay, 0, err
 		}
 	}
 
@@ -130,35 +131,35 @@ func Play(ctx context.Context, client *bot.Client, guild, channel snowflake.ID, 
 		defer o.Leaving()
 	}
 	if err != nil {
-		return stage, err
+		return stage, 0, err
 	}
 
 	if o.Suspense > 0 {
 		stage = StageSuspense
 		if err := sleep(ctx, o.Suspense); err != nil {
-			return stage, err
+			return stage, 0, err
 		}
 		if o.StillPopulated != nil && !o.StillPopulated() {
-			return stage, ErrEveryoneLeft
+			return stage, 0, ErrEveryoneLeft
 		}
 	}
 	if o.Silent {
-		return stage, nil
+		return stage, 0, nil
 	}
 
 	stage = StagePlay
 	if err = sleep(ctx, joinChime-o.Suspense); err != nil {
-		return stage, err
+		return stage, 0, err
 	}
 	if err = conn.SetSpeaking(ctx, voice.SpeakingFlagMicrophone); err != nil {
-		return stage, err
+		return stage, 0, err
 	}
-	if _, err = playClips(ctx, conn, st, clips, o.StillPopulated); err != nil {
-		return stage, err
+	if played, err = playClips(ctx, conn, st, clips, o.StillPopulated); err != nil {
+		return stage, played, err
 	}
 	// let the last frame drain before tearing the UDP socket down
 	time.Sleep(100 * time.Millisecond)
-	return stage, nil
+	return stage, played, nil
 }
 
 // playClips hands conn the whole visit as one stream and returns how many clips finished. Each clip

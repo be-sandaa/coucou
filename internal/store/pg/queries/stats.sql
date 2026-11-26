@@ -14,8 +14,9 @@ with base as (
     and b.reason is distinct from 'fakeout'
   having count(*) > 0
 ), top as (
-  select c.sound as top_sound from stats.plays c where c.guild_id = $1 and c.ok
-  group by c.sound order by count(*) desc limit 1
+  select s.sound as top_sound from stats.plays c join stats.play_sounds s on s.play_id = c.id and s.played
+  where c.guild_id = $1 and c.ok
+  group by s.sound order by count(*) desc limit 1
 ), loud as (
   select extract(hour from d.at)::int as loudest_hour from stats.plays d where d.guild_id = $1 and d.ok
   group by 1 order by count(*) desc limit 1
@@ -36,8 +37,9 @@ with base as (
          count(distinct a.guild_id) filter (where a.at > now() - interval '24 hours')::int as guilds_24h
   from stats.plays a
 ), top as (
-  select c.sound as top_sound from stats.plays c where c.ok and c.at > now() - interval '7 days'
-  group by c.sound order by count(*) desc limit 1
+  select s.sound as top_sound from stats.plays c join stats.play_sounds s on s.play_id = c.id and s.played
+  where c.ok and c.at > now() - interval '7 days'
+  group by s.sound order by count(*) desc limit 1
 )
 select base.plays_24h, base.guilds_24h, top.top_sound
 from base
@@ -75,8 +77,9 @@ left join recent    on true;
 -- name: HeardSounds :many
 -- Names only: the collection is measured against the live registry, which only Go has. A null
 -- guild_id collects across every guild.
-select distinct p.sound
+select distinct s.sound
 from stats.play_listeners l join stats.plays p on p.id = l.play_id
+join stats.play_sounds s on s.play_id = p.id and s.played
 where (sqlc.narg(guild_id)::bigint is null or p.guild_id = sqlc.narg(guild_id)) and l.user_id = sqlc.arg(user_id) and p.ok
   and p.trigger = any(sqlc.arg(triggers)::text[]);
 
@@ -104,11 +107,13 @@ where p.guild_id = $1 and p.trigger = 'command' and p.ok and p.user_id is not nu
 group by p.user_id order by n desc limit 10;
 
 -- name: BoardSounds :many
-select p.sound as key, count(*)::int as n
+-- A sound counts once per visit it played in, opener or chained.
+select s.sound as key, count(*)::int as n
 from stats.plays p
+join stats.play_sounds s on s.play_id = p.id and s.played
 where p.guild_id = $1 and p.ok
   and (sqlc.arg(days)::int = 0 or p.at > now() - make_interval(days => sqlc.arg(days)::int))
-group by p.sound order by n desc limit 10;
+group by s.sound order by n desc limit 10;
 
 -- name: BoardChannels :many
 select p.channel_id::text as key, count(*)::int as n

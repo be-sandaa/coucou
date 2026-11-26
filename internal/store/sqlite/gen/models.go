@@ -80,12 +80,21 @@ type StatsPlay struct {
 	Reason     *string `json:"reason"`
 	DurationMs int64   `json:"duration_ms"`
 	Character  *string `json:"character"`
+	SuspenseMs *int64  `json:"suspense_ms"`
 }
 
 type StatsPlayListener struct {
 	PlayID int64 `json:"play_id"`
 	UserID int64 `json:"user_id"`
 	Fled   int64 `json:"fled"`
+}
+
+type StatsPlaySound struct {
+	PlayID   int64  `json:"play_id"`
+	Position int64  `json:"position"`
+	Sound    string `json:"sound"`
+	GapMs    int64  `json:"gap_ms"`
+	Played   int64  `json:"played"`
 }
 
 type UsersOptout struct {

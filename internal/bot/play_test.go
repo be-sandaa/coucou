@@ -10,9 +10,43 @@ import (
 
 	"github.com/disgoorg/snowflake/v2"
 
+	"github.com/be-sandaa/coucou/internal/bus"
 	"github.com/be-sandaa/coucou/internal/events"
 	"github.com/be-sandaa/coucou/internal/voice"
 )
+
+// The first played clips of the planned walk are the ones that played; a fake-out plays none.
+func TestMarkPlayed(t *testing.T) {
+	const who = "who"
+	plan := []bus.PlaySound{{Sound: "knock"}, {Sound: who, Gap: 2 * time.Second}, {Sound: "rim"}}
+	tests := []struct {
+		name   string
+		played int
+		want   []bool
+	}{
+		{"cut after two", 2, []bool{true, true, false}},
+		{"fake-out", 0, []bool{false, false, false}},
+		{"all", 3, []bool{true, true, true}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := markPlayed(plan, tt.played)
+			flags := make([]bool, len(got))
+			for i, s := range got {
+				flags[i] = s.Played
+			}
+			if !slices.Equal(flags, tt.want) {
+				t.Errorf("played = %v, want %v", flags, tt.want)
+			}
+			if got[1].Gap != 2*time.Second || got[1].Sound != who {
+				t.Errorf("clip 1 = %+v, want who after 2s", got[1])
+			}
+		})
+	}
+	if plan[0].Played {
+		t.Error("markPlayed changed the plan it was given")
+	}
+}
 
 // A clip that outran the play timeout is a truncation, not a broken stage: it gets its own outcome
 // so an over-long file stops reading as the bot being broken, and so the log can name which file.

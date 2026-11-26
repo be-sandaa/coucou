@@ -114,6 +114,7 @@ type StatsPlay struct {
 	Reason     *string
 	DurationMs int32
 	Character  *string
+	SuspenseMs *int32
 }
 
 type StatsPlayListener struct {
@@ -134,6 +135,14 @@ type StatsPlayOutcome struct {
 	Reason     *string
 	DurationMs int32
 	Outcome    string
+}
+
+type StatsPlaySound struct {
+	PlayID   int64
+	Position int16
+	Sound    string
+	GapMs    int32
+	Played   bool
 }
 
 type StatsPlaysHourly struct {

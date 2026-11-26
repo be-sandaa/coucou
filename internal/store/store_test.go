@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -406,6 +407,37 @@ func TestHeardSoundsIsDistinctAndFilteredByTrigger(t *testing.T) {
 			if !slices.Equal(got, tt.want) {
 				t.Errorf("%s: HeardSounds = %v, want %v", tt.name, got, tt.want)
 			}
+		}
+	})
+}
+
+// Every clip of a visit is stored; only those that played count as heard or on the sounds board.
+func TestPlaySoundsCountWhatPlayed(t *testing.T) {
+	const knock, who, rim = "knock", "who", "rim"
+	run(t, "play-sounds", func(t *testing.T, s store.Store) {
+		ctx := context.Background()
+		guild, me := guildID(t), userID(t)
+		if err := s.WritePlays(ctx, []store.Play{{At: time.Now().UTC(), Guild: guild, Channel: guild + 1, Sound: knock,
+			Trigger: trigLoop, ListenerIDs: []snowflake.ID{me}, OK: true, Duration: time.Second, Suspense: 3 * time.Second,
+			Sounds: []store.PlaySound{{Sound: knock, Played: true}, {Sound: who, Gap: 2 * time.Second, Played: true}, {Sound: rim}},
+		}}); err != nil {
+			t.Fatalf("WritePlays: %v", err)
+		}
+		heard, err := s.HeardSounds(ctx, &guild, me, []string{trigLoop})
+		if err != nil {
+			t.Fatalf("HeardSounds: %v", err)
+		}
+		slices.Sort(heard)
+		if want := []string{knock, who}; !slices.Equal(heard, want) {
+			t.Errorf("HeardSounds = %v, want %v", heard, want)
+		}
+		rows, err := s.Leaderboard(ctx, guild, "sounds", 30)
+		if err != nil {
+			t.Fatalf("Leaderboard(sounds): %v", err)
+		}
+		slices.SortFunc(rows, func(a, b store.Row) int { return strings.Compare(a.Key, b.Key) })
+		if want := []store.Row{{Key: knock, N: 1}, {Key: who, N: 1}}; !slices.Equal(rows, want) {
+			t.Errorf("Leaderboard(sounds) = %+v, want %+v", rows, want)
 		}
 	})
 }

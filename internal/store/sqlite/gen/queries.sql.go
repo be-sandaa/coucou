@@ -130,9 +130,10 @@ func (q *Queries) BoardHeard(ctx context.Context, arg BoardHeardParams) ([]Board
 }
 
 const boardSounds = `-- name: BoardSounds :many
-select p.sound as "key", count(*) as n
-from stats_plays p where p.guild_id = ?1 and p.ok and (?2 = '' or p.at > ?2)
-group by p.sound order by n desc limit 10
+select s.sound as "key", count(*) as n
+from stats_plays p join stats_play_sounds s on s.play_id = p.id and s.played
+where p.guild_id = ?1 and p.ok and (?2 = '' or p.at > ?2)
+group by s.sound order by n desc limit 10
 `
 
 type BoardSoundsParams struct {
@@ -145,6 +146,7 @@ type BoardSoundsRow struct {
 	N   int64  `json:"n"`
 }
 
+// A sound counts once per visit it played in, opener or chained.
 func (q *Queries) BoardSounds(ctx context.Context, arg BoardSoundsParams) ([]BoardSoundsRow, error) {
 	rows, err := q.db.QueryContext(ctx, boardSounds, arg.GuildID, arg.Column2)
 	if err != nil {
@@ -613,8 +615,9 @@ with base as (
          count(distinct case when a.at > datetime('now','-24 hours') then a.guild_id end) as guilds_24h
   from stats_plays a
 ), top as (
-  select c.sound as top_sound from stats_plays c where c.ok and c.at > datetime('now','-7 days')
-  group by c.sound order by count(*) desc limit 1
+  select s.sound as top_sound from stats_plays c join stats_play_sounds s on s.play_id = c.id and s.played
+  where c.ok and c.at > datetime('now','-7 days')
+  group by s.sound order by count(*) desc limit 1
 )
 select base.plays_24h, base.guilds_24h, top.top_sound
 from base
@@ -668,8 +671,9 @@ with base as (
   from stats_plays b where b.guild_id = ?1 and b.at > datetime('now','-7 days')
     and b.reason is not 'fakeout'
 ), top as (
-  select c.sound as top_sound from stats_plays c where c.guild_id = ?1 and c.ok
-  group by c.sound order by count(*) desc limit 1
+  select s.sound as top_sound from stats_plays c join stats_play_sounds s on s.play_id = c.id and s.played
+  where c.guild_id = ?1 and c.ok
+  group by s.sound order by count(*) desc limit 1
 ), loud as (
   select cast(strftime('%H', d.at) as integer) as loudest_hour from stats_plays d where d.guild_id = ?1 and d.ok
   group by 1 order by count(*) desc limit 1
@@ -711,8 +715,9 @@ func (q *Queries) GuildStats(ctx context.Context, guildID int64) (GuildStatsRow,
 }
 
 const heardSounds = `-- name: HeardSounds :many
-select distinct p.sound
+select distinct s.sound
 from stats_play_listeners l join stats_plays p on p.id = l.play_id
+join stats_play_sounds s on s.play_id = p.id and s.played
 where (p.guild_id = ?1 or ?1 is null) and l.user_id = ?2 and p.ok
   and p.trigger in (/*SLICE:triggers*/?)
 `
@@ -854,8 +859,8 @@ func (q *Queries) InsertOptOut(ctx context.Context, arg InsertOptOutParams) erro
 }
 
 const insertPlay = `-- name: InsertPlay :one
-insert into stats_plays (at, guild_id, channel_id, sound, trigger, user_id, listeners, ok, reason, duration_ms, character)
-values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+insert into stats_plays (at, guild_id, channel_id, sound, trigger, user_id, listeners, ok, reason, duration_ms, character, suspense_ms)
+values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 returning id
 `
 
@@ -871,6 +876,7 @@ type InsertPlayParams struct {
 	Reason     *string `json:"reason"`
 	DurationMs int64   `json:"duration_ms"`
 	Character  *string `json:"character"`
+	SuspenseMs *int64  `json:"suspense_ms"`
 }
 
 func (q *Queries) InsertPlay(ctx context.Context, arg InsertPlayParams) (int64, error) {
@@ -886,6 +892,7 @@ func (q *Queries) InsertPlay(ctx context.Context, arg InsertPlayParams) (int64, 
 		arg.Reason,
 		arg.DurationMs,
 		arg.Character,
+		arg.SuspenseMs,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -904,6 +911,29 @@ type InsertPlayListenerParams struct {
 
 func (q *Queries) InsertPlayListener(ctx context.Context, arg InsertPlayListenerParams) error {
 	_, err := q.db.ExecContext(ctx, insertPlayListener, arg.PlayID, arg.UserID, arg.Fled)
+	return err
+}
+
+const insertPlaySound = `-- name: InsertPlaySound :exec
+insert into stats_play_sounds (play_id, position, sound, gap_ms, played) values (?, ?, ?, ?, ?)
+`
+
+type InsertPlaySoundParams struct {
+	PlayID   int64  `json:"play_id"`
+	Position int64  `json:"position"`
+	Sound    string `json:"sound"`
+	GapMs    int64  `json:"gap_ms"`
+	Played   int64  `json:"played"`
+}
+
+func (q *Queries) InsertPlaySound(ctx context.Context, arg InsertPlaySoundParams) error {
+	_, err := q.db.ExecContext(ctx, insertPlaySound,
+		arg.PlayID,
+		arg.Position,
+		arg.Sound,
+		arg.GapMs,
+		arg.Played,
+	)
 	return err
 }
 

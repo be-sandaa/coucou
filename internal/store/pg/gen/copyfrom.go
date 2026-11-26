@@ -42,3 +42,40 @@ func (r iteratorForInsertPlayListeners) Err() error {
 func (q *Queries) InsertPlayListeners(ctx context.Context, arg []InsertPlayListenersParams) (int64, error) {
 	return q.db.CopyFrom(ctx, []string{"stats", "play_listeners"}, []string{"play_id", "user_id", "fled"}, &iteratorForInsertPlayListeners{rows: arg})
 }
+
+// iteratorForInsertPlaySounds implements pgx.CopyFromSource.
+type iteratorForInsertPlaySounds struct {
+	rows                 []InsertPlaySoundsParams
+	skippedFirstNextCall bool
+}
+
+func (r *iteratorForInsertPlaySounds) Next() bool {
+	if len(r.rows) == 0 {
+		return false
+	}
+	if !r.skippedFirstNextCall {
+		r.skippedFirstNextCall = true
+		return true
+	}
+	r.rows = r.rows[1:]
+	return len(r.rows) > 0
+}
+
+func (r iteratorForInsertPlaySounds) Values() ([]interface{}, error) {
+	return []interface{}{
+		r.rows[0].PlayID,
+		r.rows[0].Position,
+		r.rows[0].Sound,
+		r.rows[0].GapMs,
+		r.rows[0].Played,
+	}, nil
+}
+
+func (r iteratorForInsertPlaySounds) Err() error {
+	return nil
+}
+
+// Every clip of a visit, opener at position 0; the primary key refuses a position twice.
+func (q *Queries) InsertPlaySounds(ctx context.Context, arg []InsertPlaySoundsParams) (int64, error) {
+	return q.db.CopyFrom(ctx, []string{"stats", "play_sounds"}, []string{"play_id", "position", "sound", "gap_ms", "played"}, &iteratorForInsertPlaySounds{rows: arg})
+}

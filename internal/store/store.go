@@ -57,6 +57,26 @@ type Play struct {
 	Reason      string
 	Duration    time.Duration
 	Character   string // empty for a play recorded before characters existed
+	Suspense    time.Duration
+	// Sounds is every clip the visit planned, in order, Sounds[0] the opener: enough to replay it.
+	// Empty is the opener alone, played as the visit went.
+	Sounds []PlaySound
+}
+
+// PlaySound is one clip of a visit: its sound, the silence before it, and whether it played or the
+// visit ended first.
+type PlaySound struct {
+	Sound  string
+	Gap    time.Duration
+	Played bool
+}
+
+// Clips is p's sounds as stored: Sounds, or the opener alone when it has none.
+func (p Play) Clips() []PlaySound {
+	if len(p.Sounds) > 0 {
+		return p.Sounds
+	}
+	return []PlaySound{{Sound: p.Sound, Played: p.OK}}
 }
 
 // Misc is one row of the append-only events table. Guild is nil for a global event — a sound

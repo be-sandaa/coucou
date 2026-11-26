@@ -127,11 +127,12 @@ func (q *Queries) BoardHeard(ctx context.Context, arg BoardHeardParams) ([]Board
 }
 
 const boardSounds = `-- name: BoardSounds :many
-select p.sound as key, count(*)::int as n
+select s.sound as key, count(*)::int as n
 from stats.plays p
+join stats.play_sounds s on s.play_id = p.id and s.played
 where p.guild_id = $1 and p.ok
   and ($2::int = 0 or p.at > now() - make_interval(days => $2::int))
-group by p.sound order by n desc limit 10
+group by s.sound order by n desc limit 10
 `
 
 type BoardSoundsParams struct {
@@ -144,6 +145,7 @@ type BoardSoundsRow struct {
 	N   int32
 }
 
+// A sound counts once per visit it played in, opener or chained.
 func (q *Queries) BoardSounds(ctx context.Context, arg BoardSoundsParams) ([]BoardSoundsRow, error) {
 	rows, err := q.db.Query(ctx, boardSounds, arg.GuildID, arg.Days)
 	if err != nil {
@@ -451,8 +453,9 @@ with base as (
          count(distinct a.guild_id) filter (where a.at > now() - interval '24 hours')::int as guilds_24h
   from stats.plays a
 ), top as (
-  select c.sound as top_sound from stats.plays c where c.ok and c.at > now() - interval '7 days'
-  group by c.sound order by count(*) desc limit 1
+  select s.sound as top_sound from stats.plays c join stats.play_sounds s on s.play_id = c.id and s.played
+  where c.ok and c.at > now() - interval '7 days'
+  group by s.sound order by count(*) desc limit 1
 )
 select base.plays_24h, base.guilds_24h, top.top_sound
 from base
@@ -507,8 +510,9 @@ with base as (
     and b.reason is distinct from 'fakeout'
   having count(*) > 0
 ), top as (
-  select c.sound as top_sound from stats.plays c where c.guild_id = $1 and c.ok
-  group by c.sound order by count(*) desc limit 1
+  select s.sound as top_sound from stats.plays c join stats.play_sounds s on s.play_id = c.id and s.played
+  where c.guild_id = $1 and c.ok
+  group by s.sound order by count(*) desc limit 1
 ), loud as (
   select extract(hour from d.at)::int as loudest_hour from stats.plays d where d.guild_id = $1 and d.ok
   group by 1 order by count(*) desc limit 1
@@ -552,8 +556,9 @@ func (q *Queries) GuildStats(ctx context.Context, guildID int64) (GuildStatsRow,
 }
 
 const heardSounds = `-- name: HeardSounds :many
-select distinct p.sound
+select distinct s.sound
 from stats.play_listeners l join stats.plays p on p.id = l.play_id
+join stats.play_sounds s on s.play_id = p.id and s.played
 where ($1::bigint is null or p.guild_id = $1) and l.user_id = $2 and p.ok
   and p.trigger = any($3::text[])
 `

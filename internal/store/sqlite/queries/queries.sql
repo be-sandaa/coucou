@@ -16,9 +16,12 @@ on conflict (guild_id) do update set
   updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now');
 
 -- name: InsertPlay :one
-insert into stats_plays (at, guild_id, channel_id, sound, trigger, user_id, listeners, ok, reason, duration_ms, character)
-values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+insert into stats_plays (at, guild_id, channel_id, sound, trigger, user_id, listeners, ok, reason, duration_ms, character, suspense_ms)
+values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 returning id;
+
+-- name: InsertPlaySound :exec
+insert into stats_play_sounds (play_id, position, sound, gap_ms, played) values (?, ?, ?, ?, ?);
 
 -- name: InsertPlayListener :exec
 insert or ignore into stats_play_listeners (play_id, user_id, fled) values (?, ?, ?);
@@ -61,8 +64,9 @@ with base as (
   from stats_plays b where b.guild_id = ?1 and b.at > datetime('now','-7 days')
     and b.reason is not 'fakeout'
 ), top as (
-  select c.sound as top_sound from stats_plays c where c.guild_id = ?1 and c.ok
-  group by c.sound order by count(*) desc limit 1
+  select s.sound as top_sound from stats_plays c join stats_play_sounds s on s.play_id = c.id and s.played
+  where c.guild_id = ?1 and c.ok
+  group by s.sound order by count(*) desc limit 1
 ), loud as (
   select cast(strftime('%H', d.at) as integer) as loudest_hour from stats_plays d where d.guild_id = ?1 and d.ok
   group by 1 order by count(*) desc limit 1
@@ -82,8 +86,9 @@ with base as (
          count(distinct case when a.at > datetime('now','-24 hours') then a.guild_id end) as guilds_24h
   from stats_plays a
 ), top as (
-  select c.sound as top_sound from stats_plays c where c.ok and c.at > datetime('now','-7 days')
-  group by c.sound order by count(*) desc limit 1
+  select s.sound as top_sound from stats_plays c join stats_play_sounds s on s.play_id = c.id and s.played
+  where c.ok and c.at > datetime('now','-7 days')
+  group by s.sound order by count(*) desc limit 1
 )
 select base.plays_24h, base.guilds_24h, top.top_sound
 from base
@@ -120,8 +125,9 @@ left join fled      on 1
 left join recent    on 1;
 
 -- name: HeardSounds :many
-select distinct p.sound
+select distinct s.sound
 from stats_play_listeners l join stats_plays p on p.id = l.play_id
+join stats_play_sounds s on s.play_id = p.id and s.played
 where (p.guild_id = sqlc.narg(guild_id) or sqlc.narg(guild_id) is null) and l.user_id = sqlc.arg(user_id) and p.ok
   and p.trigger in (sqlc.slice(triggers));
 
@@ -144,9 +150,11 @@ where p.guild_id = ?1 and p.trigger = 'command' and p.ok and p.user_id is not nu
 group by p.user_id order by n desc limit 10;
 
 -- name: BoardSounds :many
-select p.sound as "key", count(*) as n
-from stats_plays p where p.guild_id = ?1 and p.ok and (?2 = '' or p.at > ?2)
-group by p.sound order by n desc limit 10;
+-- A sound counts once per visit it played in, opener or chained.
+select s.sound as "key", count(*) as n
+from stats_plays p join stats_play_sounds s on s.play_id = p.id and s.played
+where p.guild_id = ?1 and p.ok and (?2 = '' or p.at > ?2)
+group by s.sound order by n desc limit 10;
 
 -- name: BoardChannels :many
 select cast(p.channel_id as text) as "key", count(*) as n
