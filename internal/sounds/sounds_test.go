@@ -596,34 +596,55 @@ const (
 	nsfwN = "n.nsfw"
 	who   = "who"
 	rim   = "rim"
+	gone  = "missing" // in a chain, with no file
 )
+
+// graph is knock → who (1) | missing (5) | n (3), and who → knock: a loop, a child with no file and
+// an nsfw one.
+func graph() Chains {
+	return Chains{Chance: 50, Decay: 0.5, MaxHops: 3, Next: map[string][]Edge{
+		knock: {{Sound: who, Weight: 1, After: 2 * time.Second}, {Sound: gone, Weight: 5}, {Sound: "n", Weight: 3}},
+		who:   {{Sound: knock, Weight: 1, After: time.Second}},
+	}}
+}
 
 func chained(t *testing.T, files ...string) *Registry {
 	t.Helper()
 	r := newFixed(t, files...)
-	r.Arrange([]Chain{{Chance: 50, Steps: []Step{{Sound: knock}, {Sound: "missing", After: time.Second}, {Sound: who, After: 2 * time.Second}, {Sound: "n"}}}},
-		Links{drum: {rim: 3, who: 1, "n": 5}})
+	r.Arrange(graph(), Links{drum: {rim: 3, who: 1, "n": 5}})
 	return r
 }
 
-// The roll is intN(100) < Chance; a missing step and one that may not play here are skipped.
+// Each hop rolls intN(100) < Chance×Decay^hop, then picks a child with intN(total weight).
 func TestFollow(t *testing.T) {
-	whoClip := Clip{Name: who, After: 2 * time.Second}
+	whoClip, knockClip := Clip{Name: who, After: 2 * time.Second}, Clip{Name: knock, After: time.Second}
+	noDecay := graph()
+	noDecay.Decay = 0
+	selfLoop := Chains{Chance: 100, Decay: 1, MaxHops: 4, Next: map[string][]Edge{knock: {{Sound: knock, Weight: 1}}}}
+	dead := Chains{Chance: 100, Decay: 1, MaxHops: 4, Next: map[string][]Edge{knock: {{Sound: gone, Weight: 1}}}}
 	tests := []struct {
 		name   string
+		chains *Chains // nil: graph()
 		opener string
 		nsfw   bool
 		roll   []int
 		want   []Clip
 	}{
-		{"no chain", drum, false, nil, nil},
-		{"the roll fails", knock, false, []int{50}, nil},
-		{"missing and nsfw steps skipped", knock, false, []int{49}, []Clip{whoClip}},
-		{"nsfw steps play where allowed", knock, true, []int{0}, []Clip{whoClip, {Name: "n"}}},
+		{"no chain", nil, drum, false, nil, nil},
+		{"the roll fails", nil, knock, false, []int{50}, nil},
+		{"missing and nsfw children left out", nil, knock, false, []int{0, 0, 25}, []Clip{whoClip}},
+		{"walks a loop", nil, knock, false, []int{0, 0, 24, 0, 12, 0}, []Clip{whoClip, knockClip, whoClip}},
+		{"nsfw child weighted in", nil, knock, true, []int{0, 1}, []Clip{{Name: "n"}}},
+		{"decay 0 stops after one", &noDecay, knock, false, []int{0, 0, 0}, []Clip{whoClip}},
+		{"loop capped", &selfLoop, knock, false, []int{0, 0, 0, 0, 0, 0, 0, 0}, []Clip{{Name: knock}, {Name: knock}, {Name: knock}, {Name: knock}}},
+		{"no playable child", &dead, knock, false, nil, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := chained(t, knock, who, nsfwN, drum)
+			if tt.chains != nil {
+				r.Arrange(*tt.chains, nil)
+			}
 			r.intN = scripted(t, tt.roll...)
 			got := r.Follow(tt.opener, tt.nsfw)
 			for i := range got {
@@ -636,19 +657,18 @@ func TestFollow(t *testing.T) {
 	}
 }
 
-// A follower is never drawn first, by Pick or by an encore's fallback.
-func TestFollowersAreNotDrawn(t *testing.T) {
+// A sound in a chain is still drawn first, by Pick and by an encore's fallback.
+func TestChainedSoundsAreDrawn(t *testing.T) {
 	r := chained(t, knock, who)
+	picked, other := map[string]bool{}, map[string]bool{}
 	for range 50 {
-		if n, _ := r.Pick(false); n != knock {
-			t.Fatalf("Pick() = %q, want knock", n)
-		}
-		if n, ok := r.PickOther("x", false); n != knock || !ok {
-			t.Fatalf("PickOther(x) = %q, %v; want knock", n, ok)
-		}
+		n, _ := r.Pick(false)
+		picked[n] = true
+		n, _ = r.PickOther("x", false)
+		other[n] = true
 	}
-	if !slices.Contains(r.Names(false), who) {
-		t.Error("a follower dropped out of Names, so /play cannot reach it")
+	if !picked[knock] || !picked[who] || !other[knock] || !other[who] {
+		t.Errorf("Pick drew %v, PickOther drew %v; want both knock and who in each", picked, other)
 	}
 }
 
