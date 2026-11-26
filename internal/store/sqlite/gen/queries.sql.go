@@ -130,7 +130,7 @@ func (q *Queries) BoardHeard(ctx context.Context, arg BoardHeardParams) ([]Board
 }
 
 const boardSounds = `-- name: BoardSounds :many
-select s.sound as "key", count(*) as n
+select s.sound as "key", count(distinct p.id) as n
 from stats_plays p join stats_play_sounds s on s.play_id = p.id and s.played
 where p.guild_id = ?1 and p.ok and (?2 = '' or p.at > ?2)
 group by s.sound order by n desc limit 10
@@ -617,7 +617,7 @@ with base as (
 ), top as (
   select s.sound as top_sound from stats_plays c join stats_play_sounds s on s.play_id = c.id and s.played
   where c.ok and c.at > datetime('now','-7 days')
-  group by s.sound order by count(*) desc limit 1
+  group by s.sound order by count(distinct c.id) desc limit 1
 )
 select base.plays_24h, base.guilds_24h, top.top_sound
 from base
@@ -673,7 +673,7 @@ with base as (
 ), top as (
   select s.sound as top_sound from stats_plays c join stats_play_sounds s on s.play_id = c.id and s.played
   where c.guild_id = ?1 and c.ok
-  group by s.sound order by count(*) desc limit 1
+  group by s.sound order by count(distinct c.id) desc limit 1
 ), loud as (
   select cast(strftime('%H', d.at) as integer) as loudest_hour from stats_plays d where d.guild_id = ?1 and d.ok
   group by 1 order by count(*) desc limit 1

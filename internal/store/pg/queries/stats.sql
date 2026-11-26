@@ -16,7 +16,7 @@ with base as (
 ), top as (
   select s.sound as top_sound from stats.plays c join stats.play_sounds s on s.play_id = c.id and s.played
   where c.guild_id = $1 and c.ok
-  group by s.sound order by count(*) desc limit 1
+  group by s.sound order by count(distinct c.id) desc limit 1
 ), loud as (
   select extract(hour from d.at)::int as loudest_hour from stats.plays d where d.guild_id = $1 and d.ok
   group by 1 order by count(*) desc limit 1
@@ -39,7 +39,7 @@ with base as (
 ), top as (
   select s.sound as top_sound from stats.plays c join stats.play_sounds s on s.play_id = c.id and s.played
   where c.ok and c.at > now() - interval '7 days'
-  group by s.sound order by count(*) desc limit 1
+  group by s.sound order by count(distinct c.id) desc limit 1
 )
 select base.plays_24h, base.guilds_24h, top.top_sound
 from base
@@ -108,7 +108,7 @@ group by p.user_id order by n desc limit 10;
 
 -- name: BoardSounds :many
 -- A sound counts once per visit it played in, opener or chained.
-select s.sound as key, count(*)::int as n
+select s.sound as key, count(distinct p.id)::int as n
 from stats.plays p
 join stats.play_sounds s on s.play_id = p.id and s.played
 where p.guild_id = $1 and p.ok

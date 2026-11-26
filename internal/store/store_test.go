@@ -411,7 +411,8 @@ func TestHeardSoundsIsDistinctAndFilteredByTrigger(t *testing.T) {
 	})
 }
 
-// Every clip of a visit is stored; only those that played count as heard or on the sounds board.
+// Every clip of a visit is stored; only those that played count as heard or on the sounds board,
+// and a sound a loop played twice counts once for the visit.
 func TestPlaySoundsCountWhatPlayed(t *testing.T) {
 	const knock, who, rim = "knock", "who", "rim"
 	run(t, "play-sounds", func(t *testing.T, s store.Store) {
@@ -419,7 +420,7 @@ func TestPlaySoundsCountWhatPlayed(t *testing.T) {
 		guild, me := guildID(t), userID(t)
 		if err := s.WritePlays(ctx, []store.Play{{At: time.Now().UTC(), Guild: guild, Channel: guild + 1, Sound: knock,
 			Trigger: trigLoop, ListenerIDs: []snowflake.ID{me}, OK: true, Duration: time.Second, Suspense: 3 * time.Second,
-			Sounds: []store.PlaySound{{Sound: knock, Played: true}, {Sound: who, Gap: 2 * time.Second, Played: true}, {Sound: rim}},
+			Sounds: []store.PlaySound{{Sound: knock, Played: true}, {Sound: who, Gap: 2 * time.Second, Played: true}, {Sound: knock, Played: true}, {Sound: rim}},
 		}}); err != nil {
 			t.Fatalf("WritePlays: %v", err)
 		}
