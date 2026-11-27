@@ -65,8 +65,7 @@ func fled(before, after []snowflake.ID) []snowflake.ID {
 	return out
 }
 
-// PlayRequest is one request to play something. It is not a bus event: the loop and /play call the
-// player directly, so there is no delivery between asking and playing, and nothing to marshal.
+// PlayRequest is one request to play something: the loop and /play call the player directly.
 //
 // Sound may be empty, which means "pick one at play time" — the player is the last moment before
 // the clip is read, so a file added since the request was made is fair game.
@@ -160,7 +159,7 @@ func encoreDue(e *PlayRequest, err error) bool {
 
 // encore waits out the gap, then asks the player again. It runs outside the pool so the wait holds
 // no slot. ctx is the loop's, which run cancels before any stop, so a pending encore is gone before
-// Bus.Close drains — and the player refuses a cancelled ctx, the same guard the loop relies on.
+// the pool drains — and the player refuses a cancelled ctx, the same guard the loop relies on.
 //
 // welcome repeats the loop's checks, since the room had up to thirty seconds to change. A no drops
 // the encore without a record: nothing was attempted.

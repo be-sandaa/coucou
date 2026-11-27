@@ -17,7 +17,6 @@ const (
 	namespace    = "coucou"
 	subEvents    = "events"
 	labelOutcome = "outcome"
-	labelHandler = "handler"
 	labelTrigger = "trigger"
 )
 
@@ -39,25 +38,12 @@ var (
 		Buckets: prometheus.ExponentialBuckets(0.5, 2, 8),
 	}, []string{labelTrigger})
 
-	// VoiceActive is how many plays hold a slot right now, against the eight the semaphore allows.
-	// Sitting at the limit means the bus is waiting for a slot rather than the bot being idle.
+	// VoiceActive is how many plays hold a slot right now, against the eight the pool allows.
+	// Sitting at the limit means plays are waiting for a slot rather than the bot being idle.
 	VoiceActive = promauto.NewGauge(prometheus.GaugeOpts{
 		Namespace: namespace, Name: "voice_active",
 		Help: "Plays currently running, out of the concurrency limit.",
 	})
-
-	// BusHandled and BusHandleDuration are recorded by the router middleware, so they cover every
-	// consumer without each one having to say so.
-	BusHandled = promauto.NewCounterVec(prometheus.CounterOpts{
-		Namespace: namespace, Name: "bus_handled_total",
-		Help: "Bus deliveries by handler and outcome.",
-	}, []string{labelHandler, labelOutcome})
-
-	BusHandleDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
-		Namespace: namespace, Name: "bus_handle_duration_seconds",
-		Help:    "Time a handler took. The voice worker returns as soon as it has a slot, so its play is not in here.",
-		Buckets: prometheus.DefBuckets,
-	}, []string{labelHandler})
 )
 
 // The gauges below mirror live state rather than counting events, so each takes the function that

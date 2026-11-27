@@ -27,4 +27,4 @@ sounds, and coucou is what runs it.
 ## Hacking on coucou
 
 - **[Development](Development)**: building, testing, and the image.
-- **[Architecture](Architecture)**: how a play happens, the layout, the database, the bus and memory.
+- **[Architecture](Architecture)**: how a play happens, the layout, the database, direct calls and memory.

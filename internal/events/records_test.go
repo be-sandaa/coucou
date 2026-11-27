@@ -12,7 +12,7 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 )
 
-// Each record's kind and data keys are schema: these pin the rows the bus handlers used to write.
+// Each record's kind and data keys are schema: these pin the rows each record writes.
 func TestRecords(t *testing.T) {
 	const bart, knock = "bart", "knock"
 	g, u := snowflake.ID(11), snowflake.ID(22)

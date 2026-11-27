@@ -19,7 +19,6 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/be-sandaa/coucou/internal/bot"
-	"github.com/be-sandaa/coucou/internal/bus"
 	"github.com/be-sandaa/coucou/internal/chaos"
 	"github.com/be-sandaa/coucou/internal/characters"
 	"github.com/be-sandaa/coucou/internal/commands"
@@ -150,7 +149,7 @@ func serve(cfg config, chars *characters.Set, build Build) error {
 		return db.Ping(ctx)
 	})
 
-	// Registered after the bus and before the bot, so the exporter is shut down — and its batch
+	// Registered before the bot, so the exporter is shut down — and its batch
 	// flushed — only once nothing is still producing spans.
 	stopTracing, err := tracing.Init(r, cfg.OTLPEndpoint, build.Version)
 	if err != nil {
@@ -165,9 +164,8 @@ func serve(cfg config, chars *characters.Set, build Build) error {
 	r.Add(func(context.Context) error { p.live.Store(true); return nil }, nil)
 	// After the log, so plays drain before its last flush and a play cut off by shutdown is recorded.
 	r.Add(nil, p.pool.Close)
-	// After the pool: a join stops before the plays it might start drain.
+	// After the log too, so the job in hand at shutdown still lands in its last flush.
 	r.Add(p.guilds.Run, p.guilds.Close)
-	r.Add(p.bus.Run, p.bus.Close)
 	// Open, then reconcile, in that order and in one func. OpenShardManager returns once every
 	// shard has had its READY, which makes the line after it the first moment the cache holds a
 	// complete picture of what the bot is in — and a complete picture is exactly what the
@@ -206,14 +204,13 @@ func serve(cfg config, chars *characters.Set, build Build) error {
 }
 
 // assemble builds everything between the database and Discord — settings, the sound registry, the
-// stats log, the event bus — then the bot that publishes to it and the consumers that react.
+// stats log, the play pool and the guild worker — then the bot that uses them.
 // parts is what serve registers, named rather than returned positionally — five values in a row
 // is a signature nobody reads correctly twice.
 type parts struct {
 	client   *dbot.Client
 	ready    *bot.ReadyTracker
 	pulse    *bot.Pulse
-	bus      *bus.Bus
 	events   *ev.Log
 	pool     *bot.Pool
 	guilds   *bot.GuildWorker
@@ -258,10 +255,6 @@ func assemble(r *run.Runner, cfg config, chars *characters.Set, db store.Store) 
 
 	log := ev.New(db)
 	live := &atomic.Bool{}
-	eb, err := bus.New()
-	if err != nil {
-		return nil, fmt.Errorf("bus: %w", err)
-	}
 	if err := chars.Start(r, cfg.SoundsPoll, func(character string) func(string, bool) {
 		return soundRecorder(r, log, live, character)
 	}); err != nil {
@@ -281,8 +274,7 @@ func assemble(r *run.Runner, cfg config, chars *characters.Set, db store.Store) 
 	// /play hands off rather than calling straight through: a full pool makes the caller wait, and
 	// the caller here is a gateway handler.
 	//
-	// WithoutCancel, not Background: the command's span is the trace root a play hangs off, and
-	// keeping it is what the bus used to buy by propagating trace context through message metadata.
+	// WithoutCancel, not Background: the command's span is the trace root a play hangs off.
 	// The cancellation has to go — the interaction's context dies when the handler returns, and a
 	// play outlives it by ninety seconds or more.
 	play := func(ctx context.Context, a commands.PlayArgs) {
@@ -322,7 +314,6 @@ func assemble(r *run.Runner, cfg config, chars *characters.Set, db store.Store) 
 		client:   client,
 		ready:    ready,
 		pulse:    pulse,
-		bus:      eb,
 		events:   log,
 		guilds:   guilds,
 		pool:     pool,

@@ -4,31 +4,30 @@ How coucou is put together, for hacking on it. Running a bot needs none of this.
 
 ## How a play happens
 
-The loop decides *what*; the bus carries it; the voice worker decides *when it can*. The handler
-returns as soon as it has one of eight slots, so the bus is never held open for the length of a
-play — which is also why shutdown has to drain the detached bodies rather than just the router.
+The loop decides *what*; the play pool decides *when it can*. The player returns as soon as the
+visit has one of eight slots, and the visit runs detached — which is why shutdown drains the pool
+before the stats log writes its last batch.
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant Sched as five-minute loop
     participant Cache as disgo cache
-    participant Bus as bus
-    participant Worker as voice worker
+    participant Worker as play pool
+    participant Log as stats log
     participant Discord
 
     Sched->>Sched: roll the dice, check quiet hours and busy
     Sched->>Cache: busiest usable channel (no REST)
     Cache-->>Sched: channel + headcount
-    Sched->>Bus: PlayRequested
-    Bus->>Worker: deliver
-    Note over Bus,Worker: the handler takes one of 8 slots and returns —<br/>the play itself runs detached
+    Sched->>Worker: play here
+    Note over Sched,Worker: the call takes one of 8 slots and returns —<br/>the play itself runs detached
     Worker->>Discord: join
     Discord-->>Worker: DAVE handshake complete
     Worker->>Worker: suspense, then re-check the room is populated
     Worker->>Worker: wait out the join chime (1 s, less any suspense)
     Worker->>Discord: the clip, or a chain's clips, then leave
-    Worker->>Bus: PlayFinished
+    Worker->>Log: RecordPlay
 ```
 
 Choosing where to drop in is cache-only and spread over three places — the dice and the clock in
@@ -65,7 +64,7 @@ hidden — a room where somebody else is present is still fair game.
 
 ```
 cmd/coucou               one func: run the app, turn its error into an exit code
-internal/app             composition root: TOML config, boot order, the bus fan-out map
+internal/app             composition root: TOML config, boot order, who a guild join reaches
 internal/ops             /healthz, /readyz and /metrics
 internal/store           Store interface + DATABASE_URL scheme registry + WaitAndMigrate
 internal/store/pg        pgx/v5, goose under pg_advisory_lock, sqlc postgresql engine
@@ -77,12 +76,9 @@ internal/sounds          live Ogg Opus registry (fsnotify + rescan, OpusHead sni
 internal/voice           join -> DAVE-ready -> suspense -> play -> leave, and channel selection
 internal/events          buffered stats log, batched through the store
 internal/rollup          refreshes the store's rolled-up analytics every 15 minutes
-internal/bus             typed events, in-process gochannel bus, JSON codec, middleware
-internal/bus/handlers    the bus consumers: one constructor per handler, no Discord in sight
-internal/bot             the Discord client: intents, cache policy, DAVE, thin gateway listeners,
-                         and the five-minute scheduler that asks the bus to play somewhere
+internal/bot             the Discord client: intents, cache policy, DAVE, the play pool, the guild
+                         worker, and the five-minute scheduler that picks somewhere to play
 internal/commands        slash commands: definitions, dispatcher, handlers, and their deploy
-internal/validate        struct-tag validation, applied to every event on both sides of the wire
 internal/metrics         Prometheus metrics, served on -http-addr with /healthz + /readyz
 internal/tracing         OpenTelemetry setup; off unless -otlp-endpoint is given
 pkg/run                  process runner: start concurrently, stop in reverse on signal or error
@@ -119,19 +115,25 @@ always; Postgres runs when `TEST_DATABASE_URL` is set:
 TEST_DATABASE_URL='postgres://user:pass@localhost:5432/scratch?sslmode=disable' go test ./internal/store/
 ```
 
-## Event bus
+## Direct calls
 
-Every state change is a typed event on an in-process bus (`internal/bus`): `PlayRequested`,
-`PlayFinished`, `CommandInvoked`, `GuildJoined`/`GuildLeft`, `SettingsChanged`,
-`SoundAdded`/`SoundRemoved`. Producers — gateway handlers, the loop, the sounds registry — know
-nothing about consumers. Consumers are registered in `internal/bus/handlers/handlers.go`; that file
-*is* the architecture diagram.
+There is no event bus. What happens is recorded by calling `events.Log` where it happens: a play
+records itself when it ends, a command when it runs, a sound change when the registry sees it
+(after boot — the first scan only prints), a boot reconcile for each guild it finds gone.
 
-`bus.New()` takes no configuration: the bus is watermill's gochannel — in-process, at-most-once,
-zero infra. **Handler names label the bus metrics and spans**, so keep them stable across releases.
-Nothing may publish before `<-bus.Running()`.
+Two things are not plain calls:
 
-Middleware: correlation IDs, panic recovery, 3× retry with backoff, 90 s handler timeout.
+- **The play pool** (`bot.Pool`) caps simultaneous voice connections at eight across the whole
+  bot. A full pool makes the caller wait; a visit runs detached from its caller's cancellation.
+- **The guild worker** (`bot.GuildWorker`) takes live joins and leaves off disgo's dispatch
+  goroutine and runs them one at a time, in order: a join records itself, syncs the database
+  (retried for up to 30 s), queues the persona and posts the welcome. Only the sync retries — the
+  boot reconcile repairs a write that gave up, and a retried welcome could post twice. The boot
+  burst never reaches it; `SyncGuilds` reconciles that from the cache.
+
+Shutdown runs in reverse registration order: the shard manager closes, then the guild worker
+finishes its job in hand, then the pool drains, then the stats log writes its last batch — so a
+play cut off by shutdown is still recorded.
 
 ## Memory
 

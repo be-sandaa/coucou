@@ -1,10 +1,8 @@
 // Package commands is the slash-command half of the Discord edge: the definitions, the dispatcher
 // that routes an interaction to its handler, and the handlers themselves.
 //
-// These cannot be bus consumers however much they resemble one. An interaction has to be answered
-// within three seconds, so a command replies synchronously through the cache and the REST API
-// rather than publishing a fact and returning — which is why this package takes six dependencies
-// where a bus handler takes one.
+// An interaction has to be answered within three seconds, so a command replies synchronously
+// through the cache and the REST API.
 package commands
 
 import (
