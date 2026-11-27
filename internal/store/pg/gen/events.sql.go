@@ -48,7 +48,7 @@ type InsertPlaySoundsParams struct {
 }
 
 const insertPlays = `-- name: InsertPlays :many
-insert into stats.plays (at, guild_id, channel_id, sound, trigger, user_id, listeners, ok, reason, duration_ms, character, suspense_ms)
+insert into stats.plays (at, guild_id, channel_id, sound, trigger, user_id, listeners, ok, reason, duration_ms, character, suspense_ms, heard)
 select
   r.at, r.guild_id, r.channel_id, r.sound, r.trigger,
   nullif(r.user_id, 0),
@@ -56,7 +56,8 @@ select
   nullif(r.reason, ''),
   r.duration_ms,
   nullif(r.character, ''),
-  r.suspense_ms
+  r.suspense_ms,
+  r.heard
 from (
   select
     unnest($1::timestamptz[])        as at,
@@ -70,7 +71,8 @@ from (
     unnest($9::text[])          as reason,
     unnest($10::int[])      as duration_ms,
     unnest($11::text[])       as character,
-    unnest($12::int[])      as suspense_ms
+    unnest($12::int[])      as suspense_ms,
+    unnest($13::boolean[])        as heard
 ) r
 returning id
 `
@@ -88,6 +90,7 @@ type InsertPlaysParams struct {
 	DurationsMs []int32
 	Characters  []string
 	SuspensesMs []int32
+	Heards      []bool
 }
 
 // One round-trip for a whole batch. sqlc's postgres catalog only knows single-argument unnest, so the
@@ -110,6 +113,7 @@ func (q *Queries) InsertPlays(ctx context.Context, arg InsertPlaysParams) ([]int
 		arg.DurationsMs,
 		arg.Characters,
 		arg.SuspensesMs,
+		arg.Heards,
 	)
 	if err != nil {
 		return nil, err

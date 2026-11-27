@@ -13,7 +13,7 @@ import (
 const boardChannels = `-- name: BoardChannels :many
 select p.channel_id::text as key, count(*)::int as n
 from stats.plays p
-where p.guild_id = $1 and p.ok
+where p.guild_id = $1 and p.heard
   and ($2::int = 0 or p.at > now() - make_interval(days => $2::int))
 group by p.channel_id order by n desc limit 10
 `
@@ -90,7 +90,7 @@ const boardHeard = `-- name: BoardHeard :many
 
 select l.user_id::text as key, count(*)::int as n
 from stats.play_listeners l join stats.plays p on p.id = l.play_id
-where p.guild_id = $1 and p.ok
+where p.guild_id = $1 and p.heard
   and ($2::int = 0 or p.at > now() - make_interval(days => $2::int))
 group by l.user_id order by n desc limit 10
 `
@@ -169,7 +169,7 @@ func (q *Queries) BoardSounds(ctx context.Context, arg BoardSoundsParams) ([]Boa
 const boardTriggered = `-- name: BoardTriggered :many
 select p.user_id::text as key, count(*)::int as n
 from stats.plays p
-where p.guild_id = $1 and p.trigger = 'command' and p.ok and p.user_id is not null
+where p.guild_id = $1 and p.trigger = 'command' and p.heard and p.user_id is not null
   and ($2::int = 0 or p.at > now() - make_interval(days => $2::int))
 group by p.user_id order by n desc limit 10
 `
@@ -207,7 +207,7 @@ func (q *Queries) BoardTriggered(ctx context.Context, arg BoardTriggeredParams) 
 const characterPlays = `-- name: CharacterPlays :many
 select coalesce(character, '') as key, count(*)::int as n
 from stats.plays
-where ok and ($1::bigint = 0 or guild_id = $1::bigint)
+where heard and ($1::bigint = 0 or guild_id = $1::bigint)
 group by coalesce(character, '') order by n desc
 `
 
@@ -216,7 +216,7 @@ type CharacterPlaysRow struct {
 	N   int32
 }
 
-// ok plays by who played them, in one guild or, for guild 0, every guild. ” is a play from before
+// Heard plays by who played them, in one guild or, for guild 0, every guild. ” is a play from before
 // characters, which the caller counts as its default.
 func (q *Queries) CharacterPlays(ctx context.Context, guildID int64) ([]CharacterPlaysRow, error) {
 	rows, err := q.db.Query(ctx, characterPlays, guildID)
@@ -244,7 +244,7 @@ pop as (
   select (count(*) filter (where l.fled))::float8 as n
   from stats.play_listeners l join stats.plays p on p.id = l.play_id
   where p.at >= $1::timestamptz and p.at < $2::timestamptz
-  group by l.user_id having count(*) filter (where p.ok) > 0
+  group by l.user_id having count(*) filter (where p.heard) > 0
 ), v as (
   select pop.n, row_number() over (order by pop.n) as rn from pop
 ), pos as (
@@ -284,7 +284,7 @@ with recursive k as (select 1 as k union all select k.k + 1 from k where k.k < 1
 pop as (
   select count(*)::float8 as n
   from stats.play_listeners l join stats.plays p on p.id = l.play_id
-  where p.ok and p.at >= $1::timestamptz and p.at < $2::timestamptz
+  where p.heard and p.at >= $1::timestamptz and p.at < $2::timestamptz
   group by l.user_id
 ), v as (
   select pop.n, row_number() over (order by pop.n) as rn from pop
@@ -328,7 +328,7 @@ with recursive k as (select 1 as k union all select k.k + 1 from k where k.k < 1
 pop as (
   select avg(p.listeners)::float8 as n
   from stats.plays p
-  where p.ok and p.at >= $1::timestamptz and p.at < $2::timestamptz
+  where p.heard and p.at >= $1::timestamptz and p.at < $2::timestamptz
   group by p.guild_id
 ), v as (
   select pop.n, row_number() over (order by pop.n) as rn from pop
@@ -368,7 +368,7 @@ with recursive k as (select 1 as k union all select k.k + 1 from k where k.k < 1
 pop as (
   select count(*)::float8 as n
   from stats.plays p
-  where p.ok and p.at >= $1::timestamptz and p.at < $2::timestamptz
+  where p.heard and p.at >= $1::timestamptz and p.at < $2::timestamptz
   group by p.guild_id
 ), v as (
   select pop.n, row_number() over (order by pop.n) as rn from pop
@@ -408,10 +408,10 @@ with recursive k as (select 1 as k union all select k.k + 1 from k where k.k < 1
 caught as (
   select distinct l.user_id
   from stats.play_listeners l join stats.plays p on p.id = l.play_id
-  where p.ok and p.at >= $1::timestamptz and p.at < $2::timestamptz
+  where p.heard and p.at >= $1::timestamptz and p.at < $2::timestamptz
 ), pop as (
   select count(a.id)::float8 as n
-  from caught c left join stats.plays a on a.user_id = c.user_id and a.trigger = 'command' and a.ok
+  from caught c left join stats.plays a on a.user_id = c.user_id and a.trigger = 'command' and a.heard
     and a.at >= $1::timestamptz and a.at < $2::timestamptz
   group by c.user_id
 ), v as (
@@ -478,7 +478,7 @@ func (q *Queries) GlobalStats(ctx context.Context) (GlobalStatsRow, error) {
 const guildRecent = `-- name: GuildRecent :one
 select count(*)::int as plays, coalesce(avg(p.listeners), 0)::float8 as avg_listeners
 from stats.plays p
-where p.guild_id = $1 and p.ok and p.at >= $2::timestamptz
+where p.guild_id = $1 and p.heard and p.at >= $2::timestamptz
 `
 
 type GuildRecentParams struct {
@@ -514,10 +514,10 @@ with base as (
   where c.guild_id = $1
   group by s.sound order by count(distinct c.id) desc limit 1
 ), loud as (
-  select extract(hour from d.at)::int as loudest_hour from stats.plays d where d.guild_id = $1 and d.ok
+  select extract(hour from d.at)::int as loudest_hour from stats.plays d where d.guild_id = $1 and d.heard
   group by 1 order by count(*) desc limit 1
 ), listen as (
-  select avg(e.listeners)::float8 as avg_listeners from stats.plays e where e.guild_id = $1 and e.ok
+  select avg(e.listeners)::float8 as avg_listeners from stats.plays e where e.guild_id = $1 and e.heard
   having count(*) > 0
 )
 select base.plays_all, base.plays_7d, rate.fail_rate_7d, top.top_sound, loud.loudest_hour, listen.avg_listeners
@@ -663,7 +663,7 @@ func (q *Queries) PlaysHourly(ctx context.Context, arg PlaysHourlyParams) ([]Pla
 const topGuilds = `-- name: TopGuilds :many
 select guild_id::text as key, count(*)::int as n
 from stats.plays
-where ok
+where heard
   and ($1::int = 0 or at > now() - make_interval(days => $1::int))
 group by guild_id order by n desc limit 10
 `
@@ -748,16 +748,16 @@ const userRank = `-- name: UserRank :one
 
 with pop as (
   select l.user_id,
-         count(*) filter (where p.ok)::int as heard,
+         count(*) filter (where p.heard)::int as heard,
          count(*) filter (where l.fled)::int as fled
   from stats.play_listeners l join stats.plays p on p.id = l.play_id
   where p.guild_id = $2 and p.at >= $3::timestamptz
-  group by l.user_id having count(*) filter (where p.ok) > 0
+  group by l.user_id having count(*) filter (where p.heard) > 0
 ), asked as (
   select p.user_id, count(*)::int as triggered
   from stats.plays p
   where p.guild_id = $2 and p.at >= $3::timestamptz
-    and p.trigger = 'command' and p.ok and p.user_id is not null
+    and p.trigger = 'command' and p.heard and p.user_id is not null
   group by p.user_id
 ), ranked as (
   select pop.user_id, pop.heard, coalesce(asked.triggered, 0)::int as triggered, pop.fled,
@@ -788,7 +788,7 @@ type UserRankRow struct {
 }
 
 // Ranks. A person's population is everyone caught at least once in the window; a guild's is every
-// guild with a play in it. Both are counted on ok plays, like heard.
+// guild with a play in it. Both are counted on heard plays.
 // Exact, on read: a guild's people are a small set. rank() - 1 is how many sit strictly below.
 func (q *Queries) UserRank(ctx context.Context, arg UserRankParams) (UserRankRow, error) {
 	row := q.db.QueryRow(ctx, userRank, arg.UserID, arg.GuildID, arg.Since)
@@ -807,13 +807,13 @@ func (q *Queries) UserRank(ctx context.Context, arg UserRankParams) (UserRankRow
 
 const userRecent = `-- name: UserRecent :one
 with heard as (
-  select count(*) filter (where p.ok)::int as heard, count(*) filter (where l.fled)::int as fled
+  select count(*) filter (where p.heard)::int as heard, count(*) filter (where l.fled)::int as fled
   from stats.play_listeners l join stats.plays p on p.id = l.play_id
   where l.user_id = $1 and p.at >= $2::timestamptz
 ), asked as (
   select count(*)::int as triggered
   from stats.plays p
-  where p.user_id = $1 and p.trigger = 'command' and p.ok and p.at >= $2::timestamptz
+  where p.user_id = $1 and p.trigger = 'command' and p.heard and p.at >= $2::timestamptz
 )
 select heard.heard, asked.triggered, heard.fled from heard cross join asked
 `
@@ -840,16 +840,16 @@ const userStats = `-- name: UserStats :one
 with heard as (
   select count(*)::int as heard
   from stats.play_listeners l join stats.plays p on p.id = l.play_id
-  where ($1::bigint is null or p.guild_id = $1) and l.user_id = $2 and p.ok
+  where ($1::bigint is null or p.guild_id = $1) and l.user_id = $2 and p.heard
 ), triggered as (
   select count(*)::int as triggered
   from stats.plays p
   where ($1::bigint is null or p.guild_id = $1) and p.user_id = $2
-    and p.trigger = 'command' and p.ok
+    and p.trigger = 'command' and p.heard
 ), recent as (
   select p.at as last_heard
   from stats.play_listeners l join stats.plays p on p.id = l.play_id
-  where ($1::bigint is null or p.guild_id = $1) and l.user_id = $2 and p.ok
+  where ($1::bigint is null or p.guild_id = $1) and l.user_id = $2 and p.heard
   order by p.at desc limit 1
 ), fled as (
   select count(*)::int as fled

@@ -414,7 +414,7 @@ func TestHeardSoundsIsDistinctAndFilteredByTrigger(t *testing.T) {
 // Every clip of a visit is stored; only those that played count as heard or on the sounds board,
 // and a sound a loop played twice counts once for the visit.
 func TestPlaySoundsCountWhatPlayed(t *testing.T) {
-	const knock, who, rim = "knock", "who", "rim"
+	const rim = "rim"
 	run(t, "play-sounds", func(t *testing.T, s store.Store) {
 		ctx := context.Background()
 		guild, me := guildID(t), userID(t)
@@ -443,17 +443,25 @@ func TestPlaySoundsCountWhatPlayed(t *testing.T) {
 	})
 }
 
-func TestCutShortVisitCountsWhatPlayed(t *testing.T) {
-	const knock, who, rim = "knock", "who", "rim"
-	run(t, "cut-short", func(t *testing.T, s store.Store) {
+const knock, who = "knock", "who"
+
+// cutShort writes a visit left after knock and who played, before rim, with me in the room.
+func cutShort(t *testing.T, s store.Store) (guild, me snowflake.ID) {
+	t.Helper()
+	guild, me = guildID(t), userID(t)
+	if err := s.WritePlays(context.Background(), []store.Play{{At: time.Now().UTC(), Guild: guild, Channel: guild + 1, Sound: knock,
+		Trigger: trigLoop, ListenerIDs: []snowflake.ID{me}, OK: false, Reason: reasonGone, Duration: time.Second,
+		Sounds: []store.PlaySound{{Sound: knock, Played: true}, {Sound: who, Played: true}, {Sound: "rim"}},
+	}}); err != nil {
+		t.Fatalf("WritePlays: %v", err)
+	}
+	return guild, me
+}
+
+func TestCutShortVisitCountsItsSounds(t *testing.T) {
+	run(t, "cut-short-sounds", func(t *testing.T, s store.Store) {
 		ctx := context.Background()
-		guild, me := guildID(t), userID(t)
-		if err := s.WritePlays(ctx, []store.Play{{At: time.Now().UTC(), Guild: guild, Channel: guild + 1, Sound: knock,
-			Trigger: trigLoop, ListenerIDs: []snowflake.ID{me}, OK: false, Reason: reasonGone, Duration: time.Second,
-			Sounds: []store.PlaySound{{Sound: knock, Played: true}, {Sound: who, Played: true}, {Sound: rim}},
-		}}); err != nil {
-			t.Fatalf("WritePlays: %v", err)
-		}
+		guild, me := cutShort(t, s)
 		heard, err := s.HeardSounds(ctx, &guild, me, []string{trigLoop})
 		if err != nil {
 			t.Fatalf("HeardSounds: %v", err)
@@ -476,6 +484,57 @@ func TestCutShortVisitCountsWhatPlayed(t *testing.T) {
 		}
 		if gs.TopSound == nil || (*gs.TopSound != knock && *gs.TopSound != who) {
 			t.Errorf("TopSound = %v, want knock or who", gs.TopSound)
+		}
+	})
+}
+
+// A cut-short visit is heard, so it counts as a visit everywhere, and still as a failure.
+func TestCutShortVisitCountsAsHeard(t *testing.T) {
+	run(t, "cut-short-visit", func(t *testing.T, s store.Store) {
+		ctx := context.Background()
+		guild, me := cutShort(t, s)
+		gs, err := s.GuildStats(ctx, guild)
+		if err != nil {
+			t.Fatalf("GuildStats: %v", err)
+		}
+		if gs.FailRate7d == nil || *gs.FailRate7d != 1 {
+			t.Errorf("FailRate7d = %v, want 1: a cut-short visit still failed", gs.FailRate7d)
+		}
+		us, err := s.UserStats(ctx, &guild, me)
+		if err != nil {
+			t.Fatalf("UserStats: %v", err)
+		}
+		if us.Heard != 1 || us.LastHeard == nil {
+			t.Errorf("UserStats = %+v, want heard 1 with a last heard", us)
+		}
+		hb, err := s.Leaderboard(ctx, guild, "heard", 30)
+		if err != nil {
+			t.Fatalf("Leaderboard(heard): %v", err)
+		}
+		if want := []store.Row{{Key: me.String(), N: 1}}; !slices.Equal(hb, want) {
+			t.Errorf("Leaderboard(heard) = %+v, want %+v", hb, want)
+		}
+	})
+}
+
+func TestCutShortVisitCountsInItsHour(t *testing.T) {
+	run(t, "cut-short-hour", func(t *testing.T, s store.Store) {
+		ctx := context.Background()
+		guild, me := cutShort(t, s)
+		since := time.Now().UTC().Add(-time.Hour)
+		ph, err := s.PlaysHourly(ctx, &guild, since)
+		if err != nil {
+			t.Fatalf("PlaysHourly: %v", err)
+		}
+		if len(ph) != 1 || ph[0].Plays != 1 || ph[0].Failed != 1 || ph[0].Loops != 1 || ph[0].Listeners != 1 {
+			t.Errorf("PlaysHourly = %+v, want one hour with plays, failed, loops and listeners all 1", ph)
+		}
+		uh, err := s.UserHourly(ctx, &guild, me, since)
+		if err != nil {
+			t.Fatalf("UserHourly: %v", err)
+		}
+		if len(uh) != 1 || uh[0].Heard != 1 {
+			t.Errorf("UserHourly = %+v, want one hour heard 1", uh)
 		}
 	})
 }

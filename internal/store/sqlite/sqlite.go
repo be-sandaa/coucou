@@ -175,7 +175,7 @@ func insertPlay(ctx context.Context, q *gen.Queries, p store.Play) error {
 	id, err := q.InsertPlay(ctx, gen.InsertPlayParams{
 		At: fmtT(p.At), GuildID: i64(p.Guild), ChannelID: i64(p.Channel), Sound: p.Sound, Trigger: p.Trigger,
 		UserID: idp(p.User), Listeners: int64(len(p.ListenerIDs)), Ok: b2i(p.OK), Reason: reason,
-		DurationMs: p.Duration.Milliseconds(), Character: strp(p.Character), SuspenseMs: &suspense,
+		DurationMs: p.Duration.Milliseconds(), Character: strp(p.Character), SuspenseMs: &suspense, Heard: b2i(p.Heard()),
 	})
 	if err != nil {
 		return err

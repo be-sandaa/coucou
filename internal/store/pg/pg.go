@@ -180,7 +180,7 @@ func (s *Store) WritePlays(ctx context.Context, plays []store.Play) error {
 			At: make([]time.Time, n), GuildIds: make([]int64, n), ChannelIds: make([]int64, n), Sounds: make([]string, n),
 			Triggers: make([]string, n), UserIds: make([]int64, n), Listeners: make([]int16, n), Oks: make([]bool, n),
 			Reasons: make([]string, n), DurationsMs: make([]int32, n), Characters: make([]string, n),
-			SuspensesMs: make([]int32, n),
+			SuspensesMs: make([]int32, n), Heards: make([]bool, n),
 		}
 		for i, pl := range plays {
 			p.At[i], p.GuildIds[i], p.ChannelIds[i], p.Sounds[i], p.Triggers[i] = pl.At, i64(pl.Guild), i64(pl.Channel), pl.Sound, pl.Trigger
@@ -192,6 +192,7 @@ func (s *Store) WritePlays(ctx context.Context, plays []store.Play) error {
 			p.Reasons[i], p.Characters[i] = pl.Reason, pl.Character
 			p.Listeners[i], p.Oks[i], p.DurationsMs[i] = small(len(pl.ListenerIDs)), pl.OK, i32(int(pl.Duration.Milliseconds()))
 			p.SuspensesMs[i] = i32(int(pl.Suspense.Milliseconds()))
+			p.Heards[i] = pl.Heard()
 		}
 		ids, err := q.InsertPlays(ctx, p)
 		if err != nil {

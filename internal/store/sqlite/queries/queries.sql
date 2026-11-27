@@ -16,8 +16,8 @@ on conflict (guild_id) do update set
   updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now');
 
 -- name: InsertPlay :one
-insert into stats_plays (at, guild_id, channel_id, sound, trigger, user_id, listeners, ok, reason, duration_ms, character, suspense_ms)
-values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+insert into stats_plays (at, guild_id, channel_id, sound, trigger, user_id, listeners, ok, reason, duration_ms, character, suspense_ms, heard)
+values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 returning id;
 
 -- name: InsertPlaySound :exec
@@ -68,10 +68,10 @@ with base as (
   where c.guild_id = ?1
   group by s.sound order by count(distinct c.id) desc limit 1
 ), loud as (
-  select cast(strftime('%H', d.at) as integer) as loudest_hour from stats_plays d where d.guild_id = ?1 and d.ok
+  select cast(strftime('%H', d.at) as integer) as loudest_hour from stats_plays d where d.guild_id = ?1 and d.heard
   group by 1 order by count(*) desc limit 1
 ), listen as (
-  select avg(e.listeners) as avg_listeners from stats_plays e where e.guild_id = ?1 and e.ok
+  select avg(e.listeners) as avg_listeners from stats_plays e where e.guild_id = ?1 and e.heard
 )
 select base.plays_all, base.plays_7d, rate.fail_rate_7d, top.top_sound, loud.loudest_hour, listen.avg_listeners
 from base
@@ -102,16 +102,16 @@ left join top on 1;
 with heard as (
   select count(*) as heard
   from stats_play_listeners l join stats_plays p on p.id = l.play_id
-  where (p.guild_id = sqlc.narg(guild_id) or sqlc.narg(guild_id) is null) and l.user_id = sqlc.arg(user_id) and p.ok
+  where (p.guild_id = sqlc.narg(guild_id) or sqlc.narg(guild_id) is null) and l.user_id = sqlc.arg(user_id) and p.heard
 ), triggered as (
   select count(*) as triggered
   from stats_plays p
   where (p.guild_id = sqlc.narg(guild_id) or sqlc.narg(guild_id) is null) and p.user_id = sqlc.arg(user_id)
-    and p.trigger = 'command' and p.ok
+    and p.trigger = 'command' and p.heard
 ), recent as (
   select p.at as last_heard
   from stats_play_listeners l join stats_plays p on p.id = l.play_id
-  where (p.guild_id = sqlc.narg(guild_id) or sqlc.narg(guild_id) is null) and l.user_id = sqlc.arg(user_id) and p.ok
+  where (p.guild_id = sqlc.narg(guild_id) or sqlc.narg(guild_id) is null) and l.user_id = sqlc.arg(user_id) and p.heard
   order by p.at desc limit 1
 ), fled as (
   select count(*) as fled
@@ -134,7 +134,7 @@ where (p.guild_id = sqlc.narg(guild_id) or sqlc.narg(guild_id) is null) and l.us
 -- name: BoardHeard :many
 select cast(l.user_id as text) as "key", count(*) as n
 from stats_play_listeners l join stats_plays p on p.id = l.play_id
-where p.guild_id = ?1 and p.ok and (?2 = '' or p.at > ?2)
+where p.guild_id = ?1 and p.heard and (?2 = '' or p.at > ?2)
 group by l.user_id order by n desc limit 10;
 
 -- name: BoardFled :many
@@ -146,7 +146,7 @@ group by l.user_id order by n desc limit 10;
 -- name: BoardTriggered :many
 select cast(p.user_id as text) as "key", count(*) as n
 from stats_plays p
-where p.guild_id = ?1 and p.trigger = 'command' and p.ok and p.user_id is not null and (?2 = '' or p.at > ?2)
+where p.guild_id = ?1 and p.trigger = 'command' and p.heard and p.user_id is not null and (?2 = '' or p.at > ?2)
 group by p.user_id order by n desc limit 10;
 
 -- name: BoardSounds :many
@@ -158,18 +158,18 @@ group by s.sound order by n desc limit 10;
 
 -- name: BoardChannels :many
 select cast(p.channel_id as text) as "key", count(*) as n
-from stats_plays p where p.guild_id = ?1 and p.ok and (?2 = '' or p.at > ?2)
+from stats_plays p where p.guild_id = ?1 and p.heard and (?2 = '' or p.at > ?2)
 group by p.channel_id order by n desc limit 10;
 
 -- name: TopGuilds :many
 select cast(guild_id as text) as "key", count(*) as n
-from stats_plays where ok and (?1 = '' or at > ?1)
+from stats_plays where heard and (?1 = '' or at > ?1)
 group by guild_id order by n desc limit 10;
 
 -- name: CharacterPlays :many
 -- See the postgres stats.sql.
 select coalesce(character, '') as "key", count(*) as n
-from stats_plays where ok and (guild_id = sqlc.arg(guild_id) or sqlc.arg(guild_id) = 0)
+from stats_plays where heard and (guild_id = sqlc.arg(guild_id) or sqlc.arg(guild_id) = 0)
 group by coalesce(character, '') order by n desc;
 
 -- Ranks: see the postgres stats.sql. since and until are timestamps formatted in Go, like the
@@ -177,15 +177,15 @@ group by coalesce(character, '') order by n desc;
 
 -- name: UserRank :one
 with pop as (
-  select l.user_id, sum(p.ok) as heard, sum(l.fled) as fled
+  select l.user_id, sum(p.heard) as heard, sum(l.fled) as fled
   from stats_play_listeners l join stats_plays p on p.id = l.play_id
   where p.guild_id = sqlc.arg(guild_id) and p.at >= sqlc.arg(since)
-  group by l.user_id having sum(p.ok) > 0
+  group by l.user_id having sum(p.heard) > 0
 ), asked as (
   select p.user_id, count(*) as triggered
   from stats_plays p
   where p.guild_id = sqlc.arg(guild_id) and p.at >= sqlc.arg(since)
-    and p.trigger = 'command' and p.ok and p.user_id is not null
+    and p.trigger = 'command' and p.heard and p.user_id is not null
   group by p.user_id
 ), ranked as (
   select pop.user_id, pop.heard, coalesce(asked.triggered, 0) as triggered, pop.fled,
@@ -202,27 +202,27 @@ from ranked where ranked.user_id = cast(sqlc.arg(user_id) as integer);
 
 -- name: UserRecent :one
 with heard as (
-  select cast(coalesce(sum(p.ok), 0) as integer) as heard, cast(coalesce(sum(l.fled), 0) as integer) as fled
+  select cast(coalesce(sum(p.heard), 0) as integer) as heard, cast(coalesce(sum(l.fled), 0) as integer) as fled
   from stats_play_listeners l join stats_plays p on p.id = l.play_id
   where l.user_id = sqlc.arg(user_id) and p.at >= sqlc.arg(since)
 ), asked as (
   select count(*) as triggered
   from stats_plays p
-  where p.user_id = sqlc.arg(user_id) and p.trigger = 'command' and p.ok and p.at >= sqlc.arg(since)
+  where p.user_id = sqlc.arg(user_id) and p.trigger = 'command' and p.heard and p.at >= sqlc.arg(since)
 )
 select heard.heard, asked.triggered, heard.fled from heard cross join asked;
 
 -- name: GuildRecent :one
 select count(*) as plays, cast(coalesce(avg(p.listeners), 0) as real) as avg_listeners
 from stats_plays p
-where p.guild_id = sqlc.arg(guild_id) and p.ok and p.at >= sqlc.arg(since);
+where p.guild_id = sqlc.arg(guild_id) and p.heard and p.at >= sqlc.arg(since);
 
 -- name: CutsHeard :many
 with recursive k as (select 1 as k union all select k.k + 1 from k where k.k < 100),
 pop as (
   select cast(count(*) as real) as n
   from stats_play_listeners l join stats_plays p on p.id = l.play_id
-  where p.ok and p.at >= sqlc.arg(since) and p.at < sqlc.arg(until)
+  where p.heard and p.at >= sqlc.arg(since) and p.at < sqlc.arg(until)
   group by l.user_id
 ), v as (
   select pop.n, row_number() over (order by pop.n) as rn from pop
@@ -236,10 +236,10 @@ with recursive k as (select 1 as k union all select k.k + 1 from k where k.k < 1
 caught as (
   select distinct l.user_id
   from stats_play_listeners l join stats_plays p on p.id = l.play_id
-  where p.ok and p.at >= sqlc.arg(since) and p.at < sqlc.arg(until)
+  where p.heard and p.at >= sqlc.arg(since) and p.at < sqlc.arg(until)
 ), pop as (
   select cast(count(a.id) as real) as n
-  from caught c left join stats_plays a on a.user_id = c.user_id and a.trigger = 'command' and a.ok
+  from caught c left join stats_plays a on a.user_id = c.user_id and a.trigger = 'command' and a.heard
     and a.at >= sqlc.arg(since) and a.at < sqlc.arg(until)
   group by c.user_id
 ), v as (
@@ -255,7 +255,7 @@ pop as (
   select cast(sum(l.fled) as real) as n
   from stats_play_listeners l join stats_plays p on p.id = l.play_id
   where p.at >= sqlc.arg(since) and p.at < sqlc.arg(until)
-  group by l.user_id having sum(p.ok) > 0
+  group by l.user_id having sum(p.heard) > 0
 ), v as (
   select pop.n, row_number() over (order by pop.n) as rn from pop
 ), pos as (
@@ -268,7 +268,7 @@ with recursive k as (select 1 as k union all select k.k + 1 from k where k.k < 1
 pop as (
   select cast(count(*) as real) as n
   from stats_plays p
-  where p.ok and p.at >= sqlc.arg(since) and p.at < sqlc.arg(until)
+  where p.heard and p.at >= sqlc.arg(since) and p.at < sqlc.arg(until)
   group by p.guild_id
 ), v as (
   select pop.n, row_number() over (order by pop.n) as rn from pop
@@ -282,7 +282,7 @@ with recursive k as (select 1 as k union all select k.k + 1 from k where k.k < 1
 pop as (
   select cast(avg(p.listeners) as real) as n
   from stats_plays p
-  where p.ok and p.at >= sqlc.arg(since) and p.at < sqlc.arg(until)
+  where p.heard and p.at >= sqlc.arg(since) and p.at < sqlc.arg(until)
   group by p.guild_id
 ), v as (
   select pop.n, row_number() over (order by pop.n) as rn from pop
@@ -343,14 +343,14 @@ insert into guilds_chaos (guild_id, rrule, hours, chance, created_by) values (?,
 
 -- name: PlaysHourly :many
 select cast(substr(p.at, 1, 13) as text)                                                     as hour,
-       cast(count(case when p.ok then 1 end) as integer)                                      as plays,
+       cast(count(case when p.heard then 1 end) as integer)                                      as plays,
        cast(count(case when not p.ok and coalesce(p.reason, '') != 'fakeout' then 1 end) as integer) as failed,
        cast(count(case when p.reason = 'fakeout' then 1 end) as integer)                      as fakeouts,
-       cast(count(case when p.ok and p.trigger = 'loop' then 1 end) as integer)               as loops,
-       cast(count(case when p.ok and p.trigger = 'command' then 1 end) as integer)            as commands,
-       cast(count(case when p.ok and p.trigger = 'encore' then 1 end) as integer)             as encores,
-       cast(coalesce(sum(case when p.ok then p.listeners end), 0) as integer)                 as listeners,
-       cast(count(distinct case when p.ok then p.guild_id end) as integer)                    as guilds
+       cast(count(case when p.heard and p.trigger = 'loop' then 1 end) as integer)               as loops,
+       cast(count(case when p.heard and p.trigger = 'command' then 1 end) as integer)            as commands,
+       cast(count(case when p.heard and p.trigger = 'encore' then 1 end) as integer)             as encores,
+       cast(coalesce(sum(case when p.heard then p.listeners end), 0) as integer)                 as listeners,
+       cast(count(distinct case when p.heard then p.guild_id end) as integer)                    as guilds
 from stats_plays p
 where (p.guild_id = sqlc.narg(guild_id) or sqlc.narg(guild_id) is null) and p.at >= sqlc.arg(since)
 group by 1
@@ -360,7 +360,7 @@ order by 1;
 select cast(x.hour as text) as hour,
        cast(sum(x.heard) as integer) as heard, cast(sum(x.fled) as integer) as fled, cast(sum(x.triggered) as integer) as triggered
 from (
-  select substr(p.at, 1, 13) as hour, p.ok as heard, l.fled as fled, 0 as triggered
+  select substr(p.at, 1, 13) as hour, p.heard as heard, l.fled as fled, 0 as triggered
   from stats_play_listeners l join stats_plays p on p.id = l.play_id
   where l.user_id = sqlc.arg(user_id) and (p.guild_id = sqlc.narg(guild_id) or sqlc.narg(guild_id) is null)
     and p.at >= sqlc.arg(since)
@@ -368,7 +368,7 @@ from (
   select substr(p.at, 1, 13), 0, 0, 1
   from stats_plays p
   where p.user_id = sqlc.arg(user_id) and (p.guild_id = sqlc.narg(guild_id) or sqlc.narg(guild_id) is null)
-    and p.trigger = 'command' and p.ok and p.at >= sqlc.arg(since)
+    and p.trigger = 'command' and p.heard and p.at >= sqlc.arg(since)
 ) x
 group by x.hour
 having sum(x.heard) + sum(x.fled) + sum(x.triggered) > 0

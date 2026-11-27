@@ -47,11 +47,26 @@ func TestPlaySoundsBackfill(t *testing.T) {
 	}
 }
 
+// heard is whether any clip played, not ok: a visit cut short after its opener was heard.
+func TestPlayHeardBackfill(t *testing.T) {
+	ctx := context.Background()
+	s := migratedTo(t, 21)
+	exec(t, s, `insert into stats_plays (id, at, guild_id, channel_id, sound, trigger, listeners, ok, duration_ms) values (1, '2026-01-01T00:00:00Z', 1, 2, 'a', 'loop', 1, 0, 10), (2, '2026-01-01T00:00:00Z', 1, 2, 'b', 'loop', 1, 0, 10)`)
+	exec(t, s, `insert into stats_play_sounds (play_id, position, sound, gap_ms, played) values (1, 0, 'a', 0, 1), (1, 1, 'c', 0, 0), (2, 0, 'b', 0, 0)`)
+	if err := s.Migrate(ctx); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	var got string
+	if err := s.db.QueryRowContext(ctx, `select group_concat(id || ':' || heard, ' ') from (select id, heard from stats_plays order by id)`).Scan(&got); err != nil || got != "1:1 2:0" {
+		t.Errorf("heard = %q, %v; want 1:1 2:0", got, err)
+	}
+}
+
 // A visit's clips and its suspense are stored as planned, in order, played or not: enough to replay it.
 func TestPlaySoundsAreStored(t *testing.T) {
 	const knock, loop = "knock", "loop"
 	ctx := context.Background()
-	s := migratedTo(t, 21)
+	s := migratedTo(t, 22)
 	if err := s.WritePlays(ctx, []store.Play{{At: time.Now().UTC(), Guild: 1, Channel: 2, Sound: knock, Trigger: loop,
 		OK: true, Duration: time.Second, Suspense: 3 * time.Second,
 		Sounds: []store.PlaySound{{Sound: knock, Played: true}, {Sound: "who", Gap: 2500 * time.Millisecond, Played: true}, {Sound: "rim"}},

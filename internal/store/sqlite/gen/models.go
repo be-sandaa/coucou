@@ -81,6 +81,7 @@ type StatsPlay struct {
 	DurationMs int64   `json:"duration_ms"`
 	Character  *string `json:"character"`
 	SuspenseMs *int64  `json:"suspense_ms"`
+	Heard      int64   `json:"heard"`
 }
 
 type StatsPlayListener struct {

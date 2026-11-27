@@ -5,7 +5,7 @@
 --
 -- sqlc maps bigint[]/text[] to []int64/[]string and has no way to express a nullable *element*, so the
 -- nullable columns travel as sentinels (0 / '') and become NULL here, at the insert, not in Go.
-insert into stats.plays (at, guild_id, channel_id, sound, trigger, user_id, listeners, ok, reason, duration_ms, character, suspense_ms)
+insert into stats.plays (at, guild_id, channel_id, sound, trigger, user_id, listeners, ok, reason, duration_ms, character, suspense_ms, heard)
 select
   r.at, r.guild_id, r.channel_id, r.sound, r.trigger,
   nullif(r.user_id, 0),
@@ -13,7 +13,8 @@ select
   nullif(r.reason, ''),
   r.duration_ms,
   nullif(r.character, ''),
-  r.suspense_ms
+  r.suspense_ms,
+  r.heard
 from (
   select
     unnest(sqlc.arg(at)::timestamptz[])        as at,
@@ -27,7 +28,8 @@ from (
     unnest(sqlc.arg(reasons)::text[])          as reason,
     unnest(sqlc.arg(durations_ms)::int[])      as duration_ms,
     unnest(sqlc.arg(characters)::text[])       as character,
-    unnest(sqlc.arg(suspenses_ms)::int[])      as suspense_ms
+    unnest(sqlc.arg(suspenses_ms)::int[])      as suspense_ms,
+    unnest(sqlc.arg(heards)::boolean[])        as heard
 ) r
 returning id;
 

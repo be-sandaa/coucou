@@ -80,6 +80,7 @@ type StatsListen struct {
 	UserID    int64
 	Ok        bool
 	Fled      bool
+	Heard     bool
 }
 
 type StatsListenersHourly struct {
@@ -115,6 +116,7 @@ type StatsPlay struct {
 	DurationMs int32
 	Character  *string
 	SuspenseMs *int32
+	Heard      bool
 }
 
 type StatsPlayListener struct {
