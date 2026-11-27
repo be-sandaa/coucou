@@ -11,6 +11,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -77,6 +78,11 @@ func (p Play) Clips() []PlaySound {
 		return p.Sounds
 	}
 	return []PlaySound{{Sound: p.Sound, Played: p.OK}}
+}
+
+// Heard reports whether any clip of p played, so its listeners heard something even if it failed.
+func (p Play) Heard() bool {
+	return slices.ContainsFunc(p.Clips(), func(c PlaySound) bool { return c.Played })
 }
 
 // Misc is one row of the append-only events table. Guild is nil for a global event — a sound

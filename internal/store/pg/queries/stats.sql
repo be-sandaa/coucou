@@ -15,7 +15,7 @@ with base as (
   having count(*) > 0
 ), top as (
   select s.sound as top_sound from stats.plays c join stats.play_sounds s on s.play_id = c.id and s.played
-  where c.guild_id = $1 and c.ok
+  where c.guild_id = $1
   group by s.sound order by count(distinct c.id) desc limit 1
 ), loud as (
   select extract(hour from d.at)::int as loudest_hour from stats.plays d where d.guild_id = $1 and d.ok
@@ -38,7 +38,7 @@ with base as (
   from stats.plays a
 ), top as (
   select s.sound as top_sound from stats.plays c join stats.play_sounds s on s.play_id = c.id and s.played
-  where c.ok and c.at > now() - interval '7 days'
+  where c.at > now() - interval '7 days'
   group by s.sound order by count(distinct c.id) desc limit 1
 )
 select base.plays_24h, base.guilds_24h, top.top_sound
@@ -80,7 +80,7 @@ left join recent    on true;
 select distinct s.sound
 from stats.play_listeners l join stats.plays p on p.id = l.play_id
 join stats.play_sounds s on s.play_id = p.id and s.played
-where (sqlc.narg(guild_id)::bigint is null or p.guild_id = sqlc.narg(guild_id)) and l.user_id = sqlc.arg(user_id) and p.ok
+where (sqlc.narg(guild_id)::bigint is null or p.guild_id = sqlc.narg(guild_id)) and l.user_id = sqlc.arg(user_id)
   and p.trigger = any(sqlc.arg(triggers)::text[]);
 
 -- Leaderboards. days = 0 means all time. Every query returns (key text, n int) so callers share one shape.
@@ -111,7 +111,7 @@ group by p.user_id order by n desc limit 10;
 select s.sound as key, count(distinct p.id)::int as n
 from stats.plays p
 join stats.play_sounds s on s.play_id = p.id and s.played
-where p.guild_id = $1 and p.ok
+where p.guild_id = $1
   and (sqlc.arg(days)::int = 0 or p.at > now() - make_interval(days => sqlc.arg(days)::int))
 group by s.sound order by n desc limit 10;
 

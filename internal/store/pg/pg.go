@@ -207,13 +207,13 @@ func (s *Store) WritePlays(ctx context.Context, plays []store.Play) error {
 	})
 }
 
-// listenerRows is who heard or fled each of plays; a failed play keeps only who fled.
+// listenerRows is who heard or fled each of plays; a play where nothing played keeps only who fled.
 func listenerRows(plays []store.Play, ids []int64) []gen.InsertPlayListenersParams {
 	var out []gen.InsertPlayListenersParams
 	for i, pl := range plays {
 		for _, u := range pl.ListenerIDs {
 			fled := slices.Contains(pl.FledIDs, u)
-			if !pl.OK && !fled {
+			if !fled && !pl.Heard() {
 				continue
 			}
 			out = append(out, gen.InsertPlayListenersParams{PlayID: ids[i], UserID: i64(u), Fled: fled})

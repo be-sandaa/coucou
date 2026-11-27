@@ -443,6 +443,43 @@ func TestPlaySoundsCountWhatPlayed(t *testing.T) {
 	})
 }
 
+func TestCutShortVisitCountsWhatPlayed(t *testing.T) {
+	const knock, who, rim = "knock", "who", "rim"
+	run(t, "cut-short", func(t *testing.T, s store.Store) {
+		ctx := context.Background()
+		guild, me := guildID(t), userID(t)
+		if err := s.WritePlays(ctx, []store.Play{{At: time.Now().UTC(), Guild: guild, Channel: guild + 1, Sound: knock,
+			Trigger: trigLoop, ListenerIDs: []snowflake.ID{me}, OK: false, Reason: reasonGone, Duration: time.Second,
+			Sounds: []store.PlaySound{{Sound: knock, Played: true}, {Sound: who, Played: true}, {Sound: rim}},
+		}}); err != nil {
+			t.Fatalf("WritePlays: %v", err)
+		}
+		heard, err := s.HeardSounds(ctx, &guild, me, []string{trigLoop})
+		if err != nil {
+			t.Fatalf("HeardSounds: %v", err)
+		}
+		slices.Sort(heard)
+		if want := []string{knock, who}; !slices.Equal(heard, want) {
+			t.Errorf("HeardSounds = %v, want %v", heard, want)
+		}
+		rows, err := s.Leaderboard(ctx, guild, "sounds", 30)
+		if err != nil {
+			t.Fatalf("Leaderboard(sounds): %v", err)
+		}
+		slices.SortFunc(rows, func(a, b store.Row) int { return strings.Compare(a.Key, b.Key) })
+		if want := []store.Row{{Key: knock, N: 1}, {Key: who, N: 1}}; !slices.Equal(rows, want) {
+			t.Errorf("Leaderboard(sounds) = %+v, want %+v", rows, want)
+		}
+		gs, err := s.GuildStats(ctx, guild)
+		if err != nil {
+			t.Fatalf("GuildStats: %v", err)
+		}
+		if gs.TopSound == nil || (*gs.TopSound != knock && *gs.TopSound != who) {
+			t.Errorf("TopSound = %v, want knock or who", gs.TopSound)
+		}
+	})
+}
+
 // A failed play keeps its fled rows, since everyone fleeing is what empties the room, but they
 // must not count as heard.
 func TestFledRoundTrip(t *testing.T) {

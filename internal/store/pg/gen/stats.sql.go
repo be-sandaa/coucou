@@ -130,7 +130,7 @@ const boardSounds = `-- name: BoardSounds :many
 select s.sound as key, count(distinct p.id)::int as n
 from stats.plays p
 join stats.play_sounds s on s.play_id = p.id and s.played
-where p.guild_id = $1 and p.ok
+where p.guild_id = $1
   and ($2::int = 0 or p.at > now() - make_interval(days => $2::int))
 group by s.sound order by n desc limit 10
 `
@@ -454,7 +454,7 @@ with base as (
   from stats.plays a
 ), top as (
   select s.sound as top_sound from stats.plays c join stats.play_sounds s on s.play_id = c.id and s.played
-  where c.ok and c.at > now() - interval '7 days'
+  where c.at > now() - interval '7 days'
   group by s.sound order by count(distinct c.id) desc limit 1
 )
 select base.plays_24h, base.guilds_24h, top.top_sound
@@ -511,7 +511,7 @@ with base as (
   having count(*) > 0
 ), top as (
   select s.sound as top_sound from stats.plays c join stats.play_sounds s on s.play_id = c.id and s.played
-  where c.guild_id = $1 and c.ok
+  where c.guild_id = $1
   group by s.sound order by count(distinct c.id) desc limit 1
 ), loud as (
   select extract(hour from d.at)::int as loudest_hour from stats.plays d where d.guild_id = $1 and d.ok
@@ -559,7 +559,7 @@ const heardSounds = `-- name: HeardSounds :many
 select distinct s.sound
 from stats.play_listeners l join stats.plays p on p.id = l.play_id
 join stats.play_sounds s on s.play_id = p.id and s.played
-where ($1::bigint is null or p.guild_id = $1) and l.user_id = $2 and p.ok
+where ($1::bigint is null or p.guild_id = $1) and l.user_id = $2
   and p.trigger = any($3::text[])
 `
 

@@ -189,7 +189,7 @@ func insertPlay(ctx context.Context, q *gen.Queries, p store.Play) error {
 	}
 	for _, u := range p.ListenerIDs {
 		fled := slices.Contains(p.FledIDs, u)
-		if !p.OK && !fled {
+		if !fled && !p.Heard() {
 			continue
 		}
 		if err := q.InsertPlayListener(ctx, gen.InsertPlayListenerParams{PlayID: id, UserID: i64(u), Fled: b2i(fled)}); err != nil {
