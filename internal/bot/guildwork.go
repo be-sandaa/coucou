@@ -112,6 +112,9 @@ const SyncBudget = 30 * time.Second
 // backing off from 200ms to 5s. budget is long enough to ride out a database failover.
 func Retry(ctx context.Context, budget time.Duration, fn func(context.Context) error) error {
 	deadline := time.Now().Add(budget)
+	// The deadline bounds each attempt too: a call that hangs would otherwise wedge the worker.
+	ctx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
 	wait := 200 * time.Millisecond
 	for {
 		err := fn(ctx)

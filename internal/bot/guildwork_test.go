@@ -161,6 +161,26 @@ func TestRetryGivesUpAtBudget(t *testing.T) {
 	}
 }
 
+// A call that never returns on its own (a half-open connection) is cut off at the budget, so one
+// hung write cannot wedge the only guild worker.
+func TestRetryBoundsAHungCall(t *testing.T) {
+	done := make(chan error, 1)
+	go func() {
+		done <- Retry(t.Context(), 100*time.Millisecond, func(ctx context.Context) error {
+			<-ctx.Done()
+			return ctx.Err()
+		})
+	}()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("Retry = %v, want the deadline", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Retry waited on a hung call past its budget")
+	}
+}
+
 func TestRetryStopsOnCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	n := 0
