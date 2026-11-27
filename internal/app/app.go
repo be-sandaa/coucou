@@ -163,6 +163,8 @@ func serve(cfg config, chars *characters.Set, build Build) error {
 	r.Add(run.Ctx(p.events.Run), run.Ctx(p.events.Flush))
 	// From here a sound change is recorded; the first scan, in assemble, only printed.
 	r.Add(func(context.Context) error { p.live.Store(true); return nil }, nil)
+	// After the log, so plays drain before its last flush and a play cut off by shutdown is recorded.
+	r.Add(nil, p.pool.Close)
 	r.Add(p.bus.Run, p.bus.Close)
 	// Open, then reconcile, in that order and in one func. OpenShardManager returns once every
 	// shard has had its READY, which makes the line after it the first moment the cache holds a
@@ -211,6 +213,7 @@ type parts struct {
 	pulse    *bot.Pulse
 	bus      *bus.Bus
 	events   *ev.Log
+	pool     *bot.Pool
 	live     *atomic.Bool
 	loop     *bot.Loop
 	optouts  *silence.Store
@@ -270,7 +273,8 @@ func assemble(r *run.Runner, cfg config, chars *characters.Set, db store.Store) 
 	warnForeignApp(chars, client.ApplicationID)
 	// The player is built before the two things that use it — the loop and /play — because it is
 	// the shared cap on simultaneous voice connections, not a per-caller one.
-	player := bot.NewPlayer(client, chars, set, quiet, opt, eb, log)
+	pool := bot.NewPool(bot.PlayConcurrency)
+	player := bot.NewPlayer(client, chars, set, quiet, opt, log, pool)
 	// /play hands off rather than calling straight through: a full pool makes the caller wait, and
 	// the caller here is a gateway handler.
 	//
@@ -334,6 +338,7 @@ func assemble(r *run.Runner, cfg config, chars *characters.Set, db store.Store) 
 		pulse:    pulse,
 		bus:      eb,
 		events:   log,
+		pool:     pool,
 		live:     live,
 		loop:     bot.NewLoop(client, set, chars, player, opt, quiet, cha),
 		optouts:  opt,

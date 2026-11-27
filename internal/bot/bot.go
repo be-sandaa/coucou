@@ -28,7 +28,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/be-sandaa/coucou/internal/bus"
 	"github.com/be-sandaa/coucou/internal/characters"
 	ev "github.com/be-sandaa/coucou/internal/events"
 	"github.com/be-sandaa/coucou/internal/metrics"
@@ -181,13 +180,10 @@ func Ready(c *bot.Client) bool {
 // A full pool makes the caller wait, which is the backpressure; /play hands off to a goroutine at
 // the composition root so a gateway handler never does that waiting.
 //
-// bus.Bounded is reused rather than reimplemented: its semaphore, its detach and its registration
-// with Bus.Close's drain are exactly what a play needs, and none of that was ever about delivery.
+// pool is that cap, shared with nothing else, and what shutdown drains.
 // log is where a finished play is recorded. set and quiet and opt are what an encore checks again
 // before it comes back.
-func NewPlayer(c *bot.Client, chars *characters.Set, set *settings.Store, quiet, opt *silence.Store, b *bus.Bus, log *ev.Log) func(context.Context, *PlayRequest) error {
-	const concurrency = 8
-
+func NewPlayer(c *bot.Client, chars *characters.Set, set *settings.Store, quiet, opt *silence.Store, log *ev.Log, pool *Pool) func(context.Context, *PlayRequest) error {
 	var player func(context.Context, *PlayRequest) error
 	welcome := welcomer(
 		quiet.Has,
@@ -246,14 +242,13 @@ func NewPlayer(c *bot.Client, chars *characters.Set, set *settings.Store, quiet,
 			v.again(&PlayRequest{Guild: e.Guild, Channel: e.Channel, Sound: next, Trigger: string(ev.TriggerEncore)})
 		}
 	}
-	pool := bus.Bounded(b, concurrency, one)
 	player = func(ctx context.Context, e *PlayRequest) error {
-		// Bound to the caller's ctx, not the body's: Bounded strips the cancellation from that one,
+		// Bound to the caller's ctx, not the body's: the pool strips the cancellation from that one,
 		// and an encore's wait still has to end on shutdown.
 		again := func(next *PlayRequest) {
 			go encore(ctx, time.Duration(10+rand.IntN(21))*time.Second, next, welcome, player)
 		}
-		return pool(ctx, &visit{req: e, again: again})
+		return pool.Go(ctx, func(ctx context.Context) { one(ctx, &visit{req: e, again: again}) })
 	}
 	return player
 }
