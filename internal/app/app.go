@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	dbot "github.com/disgoorg/disgo/bot"
@@ -160,6 +161,8 @@ func serve(cfg config, chars *characters.Set, build Build) error {
 	// Registration order is shutdown order reversed: the stats flusher is registered first so it is
 	// stopped last and still has a live database to write its final batch to.
 	r.Add(run.Ctx(p.events.Run), run.Ctx(p.events.Flush))
+	// From here a sound change is recorded; the first scan, in assemble, only printed.
+	r.Add(func(context.Context) error { p.live.Store(true); return nil }, nil)
 	r.Add(p.bus.Run, p.bus.Close)
 	// Open, then reconcile, in that order and in one func. OpenShardManager returns once every
 	// shard has had its READY, which makes the line after it the first moment the cache holds a
@@ -169,7 +172,7 @@ func serve(cfg config, chars *characters.Set, build Build) error {
 		if err := p.client.OpenShardManager(ctx); err != nil {
 			return err
 		}
-		if err := bot.SyncGuilds(ctx, p.client, p.ready, p.bus, db, p.settings, chars.Default().Defaults); err != nil {
+		if err := bot.SyncGuilds(ctx, p.client, p.ready, p.events, db, p.settings, chars.Default().Defaults); err != nil {
 			return err
 		}
 		printBanner(os.Stdout, build, p.client, chars.Len())
@@ -208,6 +211,7 @@ type parts struct {
 	pulse    *bot.Pulse
 	bus      *bus.Bus
 	events   *ev.Log
+	live     *atomic.Bool
 	loop     *bot.Loop
 	optouts  *silence.Store
 	quiet    *silence.Store
@@ -247,12 +251,13 @@ func assemble(r *run.Runner, cfg config, chars *characters.Set, db store.Store) 
 	set, opt, quiet, cha := m.settings, m.optouts, m.quiet, m.chaos
 
 	log := ev.New(db)
+	live := &atomic.Bool{}
 	eb, err := bus.New()
 	if err != nil {
 		return nil, fmt.Errorf("bus: %w", err)
 	}
 	if err := chars.Start(r, cfg.SoundsPoll, func(character string) func(string, bool) {
-		return soundPublisher(r, eb, character)
+		return soundRecorder(r, log, live, character)
 	}); err != nil {
 		return nil, fmt.Errorf("sounds: start: %w", err)
 	}
@@ -265,7 +270,7 @@ func assemble(r *run.Runner, cfg config, chars *characters.Set, db store.Store) 
 	warnForeignApp(chars, client.ApplicationID)
 	// The player is built before the two things that use it — the loop and /play — because it is
 	// the shared cap on simultaneous voice connections, not a per-caller one.
-	player := bot.NewPlayer(client, chars, set, quiet, opt, eb)
+	player := bot.NewPlayer(client, chars, set, quiet, opt, eb, log)
 	// /play hands off rather than calling straight through: a full pool makes the caller wait, and
 	// the caller here is a gateway handler.
 	//
@@ -286,7 +291,7 @@ func assemble(r *run.Runner, cfg config, chars *characters.Set, db store.Store) 
 	}
 	rk := ranks.New(db)
 	persona := bot.NewPersona(client, chars, set)
-	cmds := commands.New(client, set, opt, quiet, cha, chars, log, rk, eb, play, cfg.OwnerIDs, friends(cfg.Siblings, chars.All()), cfg.Note, cfg.Color, persona.Push)
+	cmds := commands.New(client, set, opt, quiet, cha, chars, log, rk, play, cfg.OwnerIDs, friends(cfg.Siblings, chars.All()), cfg.Note, cfg.Color, persona.Push)
 	ready := bot.NewReadyTracker()
 	pulse := bot.NewPulse()
 
@@ -310,20 +315,13 @@ func assemble(r *run.Runner, cfg config, chars *characters.Set, db store.Store) 
 	// nothing but review will notice if it is not.
 	//
 	// These names label the bus metrics and spans. Don't rename them casually.
-	bus.On(eb, "stats-plays", handlers.PlayFinished(log))
-	bus.On(eb, "stats-commands", handlers.CommandInvoked(log))
 	bus.OnTopic(eb, gw, "stats-guilds-join", bot.TopicGuildCreate, handlers.GuildJoinedStats(log))
 	bus.OnTopic(eb, gw, "stats-guilds-leave", bot.TopicGuildDelete, handlers.GuildLeftStats(log))
-	bus.On(eb, "stats-guilds-reconciled", handlers.GuildReconciledStats(log))
 
 	bus.OnTopic(eb, gw, "guild-sync-join", bot.TopicGuildCreate, handlers.GuildJoinedSync(db, set, chars.Default().Defaults))
 	bus.OnTopic(eb, gw, "guild-sync-leave", bot.TopicGuildDelete, handlers.GuildLeftSync(db))
 	bus.OnTopic(eb, gw, "persona-join", bot.TopicGuildCreate, handlers.GuildJoinedPersona(persona.Push))
 	bus.OnTopic(eb, gw, "welcome-join", bot.TopicGuildCreate, cmds.Welcome)
-
-	bus.On(eb, "log-sounds-added", handlers.SoundAdded(log))
-	bus.On(eb, "log-sounds-removed", handlers.SoundRemoved(log))
-	bus.On(eb, "log-settings", handlers.SettingsChanged(log))
 
 	metrics.ObserveGuilds(func() int { return len(set.Configured()) })
 	metrics.ObserveSounds(chars.Len)
@@ -336,6 +334,7 @@ func assemble(r *run.Runner, cfg config, chars *characters.Set, db store.Store) 
 		pulse:    pulse,
 		bus:      eb,
 		events:   log,
+		live:     live,
 		loop:     bot.NewLoop(client, set, chars, player, opt, quiet, cha),
 		optouts:  opt,
 		quiet:    quiet,
@@ -381,21 +380,15 @@ func warnForeignApp(chars *characters.Set, self snowflake.ID) {
 	}
 }
 
-// soundPublisher turns registry changes into bus events. Nothing may publish before the router has
-// attached its subscribers, so until then a change is only logged — the registry itself is already
-// up to date, and these events have no consumer but the log.
-func soundPublisher(ctx context.Context, eb *bus.Bus, character string) func(name string, added bool) {
+// soundRecorder records registry changes once the bot is live. The first scan at boot reports every
+// sound as added; recording those would store a sound_added per sound on every restart, so until
+// live they are only printed.
+func soundRecorder(ctx context.Context, log *ev.Log, live *atomic.Bool, character string) func(name string, added bool) {
 	return func(name string, added bool) {
-		select {
-		case <-eb.Running():
-		default:
-			slog.Info("sound changed before the bus was up", slog.String("character", character), slog.String("name", name), slog.Bool("added", added))
+		if !live.Load() {
+			slog.Info("sound changed before the bot was up", slog.String("character", character), slog.String("name", name), slog.Bool("added", added))
 			return
 		}
-		if added {
-			eb.Publish(ctx, bus.SoundAdded{Name: name, Character: character})
-		} else {
-			eb.Publish(ctx, bus.SoundRemoved{Name: name, Character: character})
-		}
+		log.SoundChanged(ctx, character, name, added)
 	}
 }

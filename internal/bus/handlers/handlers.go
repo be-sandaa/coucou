@@ -26,90 +26,20 @@ import (
 
 	"github.com/be-sandaa/coucou/internal/bus"
 	"github.com/be-sandaa/coucou/internal/events"
-	"github.com/be-sandaa/coucou/internal/metrics"
 	"github.com/be-sandaa/coucou/internal/settings"
 	"github.com/be-sandaa/coucou/internal/store"
 )
 
-// PlayFinished records the outcome of a play. This one keeps a direct handle on the log rather
-// than going through an audit record: a play is a relational row with its listeners in a second
-// table, which is more than a log record can carry.
-func PlayFinished(log *events.Log) bus.Handler[bus.PlayFinished] {
-	return func(_ context.Context, e *bus.PlayFinished) error {
-		outcome := e.Reason
-		if e.OK {
-			outcome = "ok"
-		}
-		metrics.PlaysTotal.WithLabelValues(e.Trigger, outcome).Inc()
-		metrics.PlayDuration.WithLabelValues(e.Trigger).Observe(e.Duration.Seconds())
-		log.RecordPlay(events.Play{
-			At: e.StartedAt, Guild: e.Guild, Channel: e.Channel, Sound: e.Sound, Trigger: e.Trigger,
-			User: e.User, ListenerIDs: e.Listeners, FledIDs: e.Fled, OK: e.OK, Reason: e.Reason, Duration: e.Duration,
-			Character: e.Character, Suspense: e.Suspense, Sounds: playSounds(e.Sounds),
-		})
-		return nil
-	}
-}
-
-func playSounds(in []bus.PlaySound) []store.PlaySound {
-	out := make([]store.PlaySound, len(in))
-	for i, s := range in {
-		out[i] = store.PlaySound{Sound: s.Sound, Gap: s.Gap, Played: s.Played}
-	}
-	return out
-}
-
-// keyName is a stored column name, shared by the three records that carry one. The data keys are
-// schema — renaming this is a migration, not a wording change.
-const keyName = "name"
-
-// keyCharacter is whose sound it was, on a sound record.
-const keyCharacter = "character"
-
-// The guild_leave record and its one column, shared by the live handler and the boot-reconcile one
-// so the two cannot drift into writing different rows for the same thing.
-const (
-	kindGuildLeave = "guild_leave"
-	keyReconciled  = "reconciled"
-)
-
-// The three below are audit records: Log.Audit both stores the row and prints the line. Kind is the
-// row kind and the data keys are its columns, so both are schema — renaming one is a migration, not
-// a wording change.
-
-func CommandInvoked(log *events.Log) bus.Handler[bus.CommandInvoked] {
-	return func(ctx context.Context, e *bus.CommandInvoked) error {
-		// The only record carrying its own time: the command ran when the user pressed enter, which
-		// may be a retry and a backlog ago.
-		log.Audit(ctx, events.Misc{At: e.At, Kind: "command", Guild: &e.Guild, User: &e.User,
-			Data: map[string]any{keyName: e.Name}})
-		return nil
-	}
-}
-
 func GuildJoinedStats(log *events.Log) bus.Handler[discord.GatewayGuild] {
 	return func(ctx context.Context, g *discord.GatewayGuild) error {
-		log.Audit(ctx, events.Misc{Kind: "guild_join", Guild: &g.ID,
-			Data: map[string]any{"memberCount": g.MemberCount}})
+		log.GuildJoined(ctx, g.ID, g.MemberCount)
 		return nil
 	}
 }
 
 func GuildLeftStats(log *events.Log) bus.Handler[discord.Guild] {
 	return func(ctx context.Context, g *discord.Guild) error {
-		log.Audit(ctx, events.Misc{Kind: kindGuildLeave, Guild: &g.ID,
-			Data: map[string]any{keyReconciled: false}})
-		return nil
-	}
-}
-
-// GuildReconciledStats is the same record for the guilds found missing at boot. It stays a domain
-// event because it is one: nothing left on the gateway, the bot was simply not running when it
-// happened, and Discord has no frame for that.
-func GuildReconciledStats(log *events.Log) bus.Handler[bus.GuildLeft] {
-	return func(ctx context.Context, e *bus.GuildLeft) error {
-		log.Audit(ctx, events.Misc{Kind: kindGuildLeave, Guild: &e.Guild,
-			Data: map[string]any{keyReconciled: true}})
+		log.GuildLeft(ctx, g.ID, false)
 		return nil
 	}
 }
@@ -157,33 +87,5 @@ func GuildJoinedPersona(push func(...snowflake.ID)) bus.Handler[discord.GatewayG
 func GuildLeftSync(db store.Store) bus.Handler[discord.Guild] {
 	return func(ctx context.Context, g *discord.Guild) error {
 		return db.MarkGuildLeft(ctx, g.ID)
-	}
-}
-
-// The three below are audit records with nothing to act on. A sound belongs to no guild, which is
-// why those two leave Guild nil — the column is null for them.
-
-func SoundAdded(log *events.Log) bus.Handler[bus.SoundAdded] {
-	return func(ctx context.Context, e *bus.SoundAdded) error {
-		log.Audit(ctx, events.Misc{Kind: "sound_added", Data: map[string]any{keyName: e.Name, keyCharacter: e.Character}})
-		return nil
-	}
-}
-
-func SoundRemoved(log *events.Log) bus.Handler[bus.SoundRemoved] {
-	return func(ctx context.Context, e *bus.SoundRemoved) error {
-		log.Audit(ctx, events.Misc{Kind: "sound_removed", Data: map[string]any{keyName: e.Name, keyCharacter: e.Character}})
-		return nil
-	}
-}
-
-// SettingsChanged only prints. The record itself is written by the audit trigger on guild_settings,
-// which sees the old and new values this event does not carry — it knows which command ran, not what
-// the setting became. The line stays because a console following the bot should still show it.
-func SettingsChanged(log *events.Log) bus.Handler[bus.SettingsChanged] {
-	return func(ctx context.Context, e *bus.SettingsChanged) error {
-		log.Print(ctx, events.Misc{Kind: "settings_changed", Guild: &e.Guild, User: &e.By,
-			Data: map[string]any{"field": e.Field}})
-		return nil
 	}
 }

@@ -33,7 +33,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/be-sandaa/coucou/internal/bus"
 	"github.com/be-sandaa/coucou/internal/chaos"
 	"github.com/be-sandaa/coucou/internal/characters"
 	ev "github.com/be-sandaa/coucou/internal/events"
@@ -72,7 +71,6 @@ type Commands struct {
 	chars    *characters.Set
 	events   *ev.Log
 	ranks    *ranks.Cuts
-	bus      *bus.Bus
 	play     Play
 	owners   []snowflake.ID
 	siblings []Sibling
@@ -106,7 +104,6 @@ func New(
 	chars *characters.Set,
 	log *ev.Log,
 	rk *ranks.Cuts,
-	b *bus.Bus,
 	play Play,
 	owners []snowflake.ID,
 	siblings []Sibling,
@@ -115,7 +112,7 @@ func New(
 	push func(...snowflake.ID),
 ) *Commands {
 	colBrand = color
-	return &Commands{client: client, settings: set, optouts: opt, quiet: quiet, chaos: ch, chars: chars, events: log, ranks: rk, bus: b, play: play, owners: owners, siblings: siblings, note: note, push: push}
+	return &Commands{client: client, settings: set, optouts: opt, quiet: quiet, chaos: ch, chars: chars, events: log, ranks: rk, play: play, owners: owners, siblings: siblings, note: note, push: push}
 }
 
 // character is who the bot is in guild.
@@ -498,7 +495,7 @@ func (c *Commands) onCommand(e *events.ApplicationCommandInteractionCreate) {
 		attribute.String("coucou.command", data.CommandName()),
 	))
 	defer span.End()
-	c.bus.Publish(ctx, bus.CommandInvoked{Guild: guild, User: e.User().ID, Name: data.CommandName(), At: time.Now()})
+	c.events.Command(ctx, guild, e.User().ID, data.CommandName(), time.Now())
 
 	handler, ok := c.handlers()[data.CommandName()]
 	if !ok {
@@ -582,7 +579,7 @@ func (c *Commands) cmdChance(ctx context.Context, e *events.ApplicationCommandIn
 		}); err != nil {
 			return err
 		}
-		c.bus.Publish(ctx, bus.SettingsChanged{Guild: guild, Field: cmdNameChance, By: e.User().ID})
+		c.events.SettingsChanged(ctx, guild, cmdNameChance, e.User().ID)
 		return nil
 	}, info("Drop-in chance", body))
 }
@@ -617,7 +614,7 @@ func (c *Commands) cmdSuspense(ctx context.Context, e *events.ApplicationCommand
 		}); err != nil {
 			return err
 		}
-		c.bus.Publish(ctx, bus.SettingsChanged{Guild: guild, Field: cmdNameSuspense, By: e.User().ID})
+		c.events.SettingsChanged(ctx, guild, cmdNameSuspense, e.User().ID)
 		return nil
 	}, info("Suspense", body))
 }
@@ -1145,7 +1142,7 @@ func (c *Commands) cmdQuiet(ctx context.Context, e *events.ApplicationCommandInt
 				return err
 			}
 		}
-		c.bus.Publish(ctx, bus.SettingsChanged{Guild: guild, Field: cmdNameQuiet, By: by})
+		c.events.SettingsChanged(ctx, guild, cmdNameQuiet, by)
 		return nil
 	})
 }

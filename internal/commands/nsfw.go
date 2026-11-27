@@ -12,7 +12,6 @@ import (
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
 
-	"github.com/be-sandaa/coucou/internal/bus"
 	"github.com/be-sandaa/coucou/internal/settings"
 	"github.com/be-sandaa/coucou/internal/voice"
 )
@@ -94,7 +93,7 @@ func (c *Commands) setNSFW(ctx context.Context, guild, by snowflake.ID, mode set
 	if mode == settings.NSFWOn {
 		slog.Warn("nsfw sounds turned on in every channel", slog.Any("guild", guild), slog.Any("by", by))
 	}
-	c.bus.Publish(ctx, bus.SettingsChanged{Guild: guild, Field: cmdNameNSFW, By: by})
+	c.events.SettingsChanged(ctx, guild, cmdNameNSFW, by)
 	return nil
 }
 

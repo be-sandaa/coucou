@@ -35,6 +35,7 @@ import (
 	"github.com/be-sandaa/coucou/internal/profile"
 	"github.com/be-sandaa/coucou/internal/settings"
 	"github.com/be-sandaa/coucou/internal/silence"
+	"github.com/be-sandaa/coucou/internal/store"
 	"github.com/be-sandaa/coucou/internal/tracing"
 	"github.com/be-sandaa/coucou/internal/voice"
 )
@@ -182,9 +183,9 @@ func Ready(c *bot.Client) bool {
 //
 // bus.Bounded is reused rather than reimplemented: its semaphore, its detach and its registration
 // with Bus.Close's drain are exactly what a play needs, and none of that was ever about delivery.
-// b is also where PlayFinished goes, which is the only part of a play that is still an event. set and
-// quiet and opt are what an encore checks again before it comes back.
-func NewPlayer(c *bot.Client, chars *characters.Set, set *settings.Store, quiet, opt *silence.Store, b *bus.Bus) func(context.Context, *PlayRequest) error {
+// log is where a finished play is recorded. set and quiet and opt are what an encore checks again
+// before it comes back.
+func NewPlayer(c *bot.Client, chars *characters.Set, set *settings.Store, quiet, opt *silence.Store, b *bus.Bus, log *ev.Log) func(context.Context, *PlayRequest) error {
 	const concurrency = 8
 
 	var player func(context.Context, *PlayRequest) error
@@ -213,7 +214,7 @@ func NewPlayer(c *bot.Client, chars *characters.Set, set *settings.Store, quiet,
 		ch := chars.Get(cmp.Or(e.Character, st.Character))
 		reg := ch.Sounds
 		if len(e.Preview) > 0 {
-			previewPlay(ctx, c, b, e, ch)
+			previewPlay(ctx, c, log, e, ch)
 			return
 		}
 		nsfw := st.NSFW.Allows(voice.AgeRestricted(c, e.Guild, e.Channel))
@@ -228,17 +229,17 @@ func NewPlayer(c *bot.Client, chars *characters.Set, set *settings.Store, quiet,
 		if !ok {
 			return // raced a deletion; nothing happened
 		}
-		clips, plan, last := []voice.Clip{{File: file}}, []bus.PlaySound{{Sound: sound}}, sound
+		clips, plan, last := []voice.Clip{{File: file}}, []store.PlaySound{{Sound: sound}}, sound
 		if !e.FakeOut {
 			for _, f := range reg.Follow(sound, nsfw) {
 				clips = append(clips, voice.Clip{File: f.Path, Gap: f.After})
-				plan = append(plan, bus.PlaySound{Sound: f.Name, Gap: f.After})
+				plan = append(plan, store.PlaySound{Sound: f.Name, Gap: f.After})
 				last = f.Name
 			}
 		}
 		ctx, cancel := context.WithTimeout(ctx, timeout(clips))
 		defer cancel()
-		if err := play(ctx, c, b, e, ch.ID, sound, clips, plan); !encoreDue(e, err) {
+		if err := play(ctx, c, log, e, ch.ID, sound, clips, plan); !encoreDue(e, err) {
 			return
 		}
 		if next, ok := reg.Encore(last, nsfw); ok {
@@ -262,7 +263,7 @@ const previewGap = time.Second
 
 // previewPlay is a preview's visit: its sounds in order, a sound gone since it was asked for left
 // out. It never chains, never encores, and play leaves it out of the stats.
-func previewPlay(ctx context.Context, c *bot.Client, b *bus.Bus, e *PlayRequest, ch *characters.Character) {
+func previewPlay(ctx context.Context, c *bot.Client, log *ev.Log, e *PlayRequest, ch *characters.Character) {
 	var clips []voice.Clip
 	for _, name := range e.Preview {
 		if file, ok := ch.Sounds.Path(name); ok {
@@ -275,7 +276,7 @@ func previewPlay(ctx context.Context, c *bot.Client, b *bus.Bus, e *PlayRequest,
 	clips[0].Gap = 0
 	ctx, cancel := context.WithTimeout(ctx, timeout(clips))
 	defer cancel()
-	if err := play(ctx, c, b, e, ch.ID, e.Preview[0], clips, nil); err != nil { // a preview is never recorded
+	if err := play(ctx, c, log, e, ch.ID, e.Preview[0], clips, nil); err != nil { // a preview is never recorded
 		slog.Debug("preview: did not play", slog.Any("guild", e.Guild), slog.Any("err", err)) // play warned already
 	}
 }
