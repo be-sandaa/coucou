@@ -80,17 +80,10 @@ func TestGuildCreateHandler(t *testing.T) {
 	}
 }
 
+// The guild worker hands this guild to the welcome, which picks a channel from it.
 func assertFrameKeepsChannels(t *testing.T, g discord.GatewayGuild) {
 	t.Helper()
-	raw, err := json.Marshal(g)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var back discord.GatewayGuild
-	if err := json.Unmarshal(raw, &back); err != nil {
-		t.Fatalf("the frame the bus decodes: %v", err)
-	}
-	if len(back.Channels) != 2 || back.Channels[1].Name() != "general" {
-		t.Errorf("channels = %+v, want both, names intact", back.Channels)
+	if len(g.Channels) != 2 || g.Channels[1].Name() != "general" {
+		t.Errorf("channels = %+v, want both, names intact", g.Channels)
 	}
 }

@@ -164,15 +164,12 @@ hand-written SQL in Go outside the lock/ping/tx helpers.
 
 ---
 
-## watermill
+## watermill (removed)
 
-### One subscriber shared by every handler
-
-The router's `SubscriberConstructor` returns the same subscriber for every handler. On gochannel
-that is correct and required — it fans out to all subscribers, so `GuildJoined`'s two handlers
-(`stats-guilds-join` and `guild-sync-join`) each see every event.
-
-`Bus.Close` also closes the publisher now; the router already owns and closes the subscribers.
+The bot used to route every event through watermill's gochannel with CQRS handlers, a poison
+queue and retry middleware, built as a joke on "ready for Kafka". One process with one producer
+per event never needed it; it is now direct calls, a play pool and a guild worker
+(`docs/wiki/dev/Architecture.md`, "Direct calls").
 
 ---
 

@@ -28,9 +28,8 @@ func Tracer() trace.Tracer { return otel.Tracer(Name) }
 // An empty endpoint leaves the global no-op provider in place and returns a shutdown that does
 // nothing, so a caller never has to branch on whether tracing is on.
 //
-// The propagator is installed either way. It is what reads and writes the traceparent in a bus
-// message's metadata, and leaving it out would make a span silently lose its parent rather than
-// fail — the kind of thing nobody notices until they need the trace.
+// The propagator is installed either way: it is what carries a traceparent across a process
+// boundary, and leaving it out would make such a span silently lose its parent rather than fail.
 func Init(ctx context.Context, endpoint, version string) (shutdown func(context.Context) error, err error) {
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 		propagation.TraceContext{}, propagation.Baggage{},

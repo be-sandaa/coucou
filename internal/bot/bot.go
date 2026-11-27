@@ -28,13 +28,13 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/be-sandaa/coucou/internal/bus"
 	"github.com/be-sandaa/coucou/internal/characters"
 	ev "github.com/be-sandaa/coucou/internal/events"
 	"github.com/be-sandaa/coucou/internal/metrics"
 	"github.com/be-sandaa/coucou/internal/profile"
 	"github.com/be-sandaa/coucou/internal/settings"
 	"github.com/be-sandaa/coucou/internal/silence"
+	"github.com/be-sandaa/coucou/internal/store"
 	"github.com/be-sandaa/coucou/internal/tracing"
 	"github.com/be-sandaa/coucou/internal/voice"
 )
@@ -180,13 +180,10 @@ func Ready(c *bot.Client) bool {
 // A full pool makes the caller wait, which is the backpressure; /play hands off to a goroutine at
 // the composition root so a gateway handler never does that waiting.
 //
-// bus.Bounded is reused rather than reimplemented: its semaphore, its detach and its registration
-// with Bus.Close's drain are exactly what a play needs, and none of that was ever about delivery.
-// b is also where PlayFinished goes, which is the only part of a play that is still an event. set and
-// quiet and opt are what an encore checks again before it comes back.
-func NewPlayer(c *bot.Client, chars *characters.Set, set *settings.Store, quiet, opt *silence.Store, b *bus.Bus) func(context.Context, *PlayRequest) error {
-	const concurrency = 8
-
+// pool is that cap, shared with nothing else, and what shutdown drains.
+// log is where a finished play is recorded. set and quiet and opt are what an encore checks again
+// before it comes back.
+func NewPlayer(c *bot.Client, chars *characters.Set, set *settings.Store, quiet, opt *silence.Store, log *ev.Log, pool *Pool) func(context.Context, *PlayRequest) error {
 	var player func(context.Context, *PlayRequest) error
 	welcome := welcomer(
 		quiet.Has,
@@ -213,7 +210,7 @@ func NewPlayer(c *bot.Client, chars *characters.Set, set *settings.Store, quiet,
 		ch := chars.Get(cmp.Or(e.Character, st.Character))
 		reg := ch.Sounds
 		if len(e.Preview) > 0 {
-			previewPlay(ctx, c, b, e, ch)
+			previewPlay(ctx, c, log, e, ch)
 			return
 		}
 		nsfw := st.NSFW.Allows(voice.AgeRestricted(c, e.Guild, e.Channel))
@@ -228,31 +225,30 @@ func NewPlayer(c *bot.Client, chars *characters.Set, set *settings.Store, quiet,
 		if !ok {
 			return // raced a deletion; nothing happened
 		}
-		clips, plan, last := []voice.Clip{{File: file}}, []bus.PlaySound{{Sound: sound}}, sound
+		clips, plan, last := []voice.Clip{{File: file}}, []store.PlaySound{{Sound: sound}}, sound
 		if !e.FakeOut {
 			for _, f := range reg.Follow(sound, nsfw) {
 				clips = append(clips, voice.Clip{File: f.Path, Gap: f.After})
-				plan = append(plan, bus.PlaySound{Sound: f.Name, Gap: f.After})
+				plan = append(plan, store.PlaySound{Sound: f.Name, Gap: f.After})
 				last = f.Name
 			}
 		}
 		ctx, cancel := context.WithTimeout(ctx, timeout(clips))
 		defer cancel()
-		if err := play(ctx, c, b, e, ch.ID, sound, clips, plan); !encoreDue(e, err) {
+		if err := play(ctx, c, log, e, ch.ID, sound, clips, plan); !encoreDue(e, err) {
 			return
 		}
 		if next, ok := reg.Encore(last, nsfw); ok {
 			v.again(&PlayRequest{Guild: e.Guild, Channel: e.Channel, Sound: next, Trigger: string(ev.TriggerEncore)})
 		}
 	}
-	pool := bus.Bounded(b, concurrency, one)
 	player = func(ctx context.Context, e *PlayRequest) error {
-		// Bound to the caller's ctx, not the body's: Bounded strips the cancellation from that one,
+		// Bound to the caller's ctx, not the body's: the pool strips the cancellation from that one,
 		// and an encore's wait still has to end on shutdown.
 		again := func(next *PlayRequest) {
 			go encore(ctx, time.Duration(10+rand.IntN(21))*time.Second, next, welcome, player)
 		}
-		return pool(ctx, &visit{req: e, again: again})
+		return pool.Go(ctx, func(ctx context.Context) { one(ctx, &visit{req: e, again: again}) })
 	}
 	return player
 }
@@ -262,7 +258,7 @@ const previewGap = time.Second
 
 // previewPlay is a preview's visit: its sounds in order, a sound gone since it was asked for left
 // out. It never chains, never encores, and play leaves it out of the stats.
-func previewPlay(ctx context.Context, c *bot.Client, b *bus.Bus, e *PlayRequest, ch *characters.Character) {
+func previewPlay(ctx context.Context, c *bot.Client, log *ev.Log, e *PlayRequest, ch *characters.Character) {
 	var clips []voice.Clip
 	for _, name := range e.Preview {
 		if file, ok := ch.Sounds.Path(name); ok {
@@ -275,7 +271,7 @@ func previewPlay(ctx context.Context, c *bot.Client, b *bus.Bus, e *PlayRequest,
 	clips[0].Gap = 0
 	ctx, cancel := context.WithTimeout(ctx, timeout(clips))
 	defer cancel()
-	if err := play(ctx, c, b, e, ch.ID, e.Preview[0], clips, nil); err != nil { // a preview is never recorded
+	if err := play(ctx, c, log, e, ch.ID, e.Preview[0], clips, nil); err != nil { // a preview is never recorded
 		slog.Debug("preview: did not play", slog.Any("guild", e.Guild), slog.Any("err", err)) // play warned already
 	}
 }

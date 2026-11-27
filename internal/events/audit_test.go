@@ -26,7 +26,6 @@ func withConsole(t *testing.T, level slog.Leveler) *bytes.Buffer {
 // spell the same word.
 const (
 	kindCommand = "command"
-	keyName     = "name"
 	soundPlay   = "play"
 )
 
@@ -91,7 +90,7 @@ func TestAuditAlsoPrintsOneAuditLine(t *testing.T) {
 	buf := withConsole(t, slog.LevelInfo)
 
 	g := snowflake.ID(11)
-	l.Audit(context.Background(), Misc{Kind: "guild_join", Guild: &g, Data: map[string]any{"memberCount": 7}})
+	l.Audit(context.Background(), Misc{Kind: kindGuildJoin, Guild: &g, Data: map[string]any{keyMembers: 7}})
 
 	out := buf.String()
 	if n := strings.Count(out, "\n"); n != 1 {
@@ -111,7 +110,7 @@ func TestAuditStoresThroughAQuietConsole(t *testing.T) {
 	l := New(c)
 	buf := withConsole(t, slog.LevelError)
 
-	l.Audit(context.Background(), Misc{Kind: "sound_added", Data: map[string]any{keyName: "airhorn"}})
+	l.Audit(context.Background(), Misc{Kind: kindSoundAdded, Data: map[string]any{keyName: "airhorn"}})
 	l.Flush(context.Background())
 
 	if len(c.rows()) != 1 {

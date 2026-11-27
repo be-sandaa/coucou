@@ -12,7 +12,7 @@ import (
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/snowflake/v2"
 
-	"github.com/be-sandaa/coucou/internal/bus"
+	ev "github.com/be-sandaa/coucou/internal/events"
 	"github.com/be-sandaa/coucou/internal/settings"
 	"github.com/be-sandaa/coucou/internal/store"
 )
@@ -59,13 +59,13 @@ func (t *ReadyTracker) OnReady() bot.EventListener {
 //
 // It must not run until every shard has reported. MarkGuildsLeftExcept treats anything missing from
 // the cache as a guild we were removed from, so running it against one shard's guilds would mark
-// every other shard's as left and publish a GuildLeft for each. The caller owns that ordering by
+// every other shard's as left and record a departure for each. The caller owns that ordering by
 // calling this only once the shard manager has opened; this waits out the guild burst that follows.
 //
 // Deliberately no longer a GuildsReady listener. disgo dispatches that when the client-wide unready
 // set empties, which under sharding can fire before the last shard has identified — and never at
 // all for a shard holding no guilds. There is no count of it that is right.
-func SyncGuilds(ctx context.Context, c *bot.Client, t *ReadyTracker, b *bus.Bus, db store.Store, set *settings.Store, d store.Defaults) error {
+func SyncGuilds(ctx context.Context, c *bot.Client, t *ReadyTracker, log *ev.Log, db store.Store, set *settings.Store, d store.Defaults) error {
 	unready, err := waitForGuilds(ctx, shardCount(c), t.Count, c.Caches.UnreadyGuildIDs)
 	if err != nil {
 		// Reconciling while a shard is still silent is the one outcome worse than not reconciling:
@@ -73,13 +73,6 @@ func SyncGuilds(ctx context.Context, c *bot.Client, t *ReadyTracker, b *bus.Bus,
 		slog.Error("guilds: shards never all reported, skipping the reconcile", slog.Any("err", err))
 		return nil
 	}
-	// GuildLeft goes on the bus, and nothing may publish before the router has its subscribers.
-	select {
-	case <-b.Running():
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
@@ -104,7 +97,7 @@ func SyncGuilds(ctx context.Context, c *bot.Client, t *ReadyTracker, b *bus.Bus,
 		slog.Error("guilds: mark left", slog.Any("err", err))
 	}
 	for _, id := range left {
-		b.Publish(ctx, bus.GuildLeft{Guild: id, Reconciled: true})
+		log.GuildLeft(ctx, id, true)
 	}
 	seeded, err := db.SeedSettings(ctx, d)
 	if err != nil {
@@ -170,4 +163,40 @@ func shardCount(c *bot.Client) int {
 		n++
 	}
 	return n
+}
+
+// GuildJoinedSync keeps the guilds table and the settings seed in step with Discord, and fills in a
+// zone guessed from the guild's locale if it has none.
+// d seeds a guild that has no settings row yet; a guild overrides each value with its command, and
+// seeding never overwrites a row that already exists.
+func GuildJoinedSync(db store.Store, set *settings.Store, d store.Defaults) func(context.Context, *discord.GatewayGuild) error {
+	return func(ctx context.Context, g *discord.GatewayGuild) error {
+		if err := db.UpsertGuilds(ctx, []store.Guild{{ID: g.ID, JoinedAt: g.JoinedAt}}); err != nil {
+			return err // retried by the guild worker
+		}
+		if err := db.SeedSettingsFor(ctx, g.ID, d); err != nil {
+			return err
+		}
+		// A guild coming back already has its row, and the mirror with it: writing the defaults over
+		// it here would undo the seed's do-not-overwrite rule.
+		if d != (store.Defaults{}) && !set.Known(g.ID) {
+			// Actor zero: nobody asked for this, the bot is applying its own defaults.
+			if _, err := set.Update(ctx, g.ID, 0, func(s *settings.Settings) {
+				s.Chance, s.Suspense, s.FakeOut, s.Encore = d.Chance, d.Suspense, d.FakeOut, d.Encore
+			}); err != nil {
+				return err
+			}
+		}
+		// The join payload carries the locale, so the zone is filled in now rather than at the next
+		// boot. A guild coming back keeps the zone it had.
+		_, err := set.FillZones(ctx, map[snowflake.ID]discord.Locale{g.ID: discord.Locale(g.PreferredLocale)})
+		return err
+	}
+}
+
+// GuildLeftSync marks a guild left while we watched; a boot reconcile writes its own rows.
+func GuildLeftSync(db store.Store) func(context.Context, *discord.Guild) error {
+	return func(ctx context.Context, g *discord.Guild) error {
+		return db.MarkGuildLeft(ctx, g.ID)
+	}
 }

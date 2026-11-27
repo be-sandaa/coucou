@@ -1,4 +1,4 @@
-package handlers
+package bot
 
 import (
 	"context"
@@ -22,10 +22,10 @@ var (
 	errMarkLeft = errors.New("mark guild left failed")
 )
 
-// fakeStore records what the sync handlers wrote and can fail any one step. Hand-written because
+// syncStore records what the sync handlers wrote and can fail any one step. Hand-written because
 // four of the sixteen methods are load-bearing here and the rest only exist to satisfy the
 // interface — a generated mock would be larger and read worse at the call site.
-type fakeStore struct {
+type syncStore struct {
 	upserted []store.Guild
 	seeded   []snowflake.ID
 	settings int     // UpsertSettings calls, which is how settings.Store.Update shows up from here
@@ -35,83 +35,83 @@ type fakeStore struct {
 	failUpsert, failSeed, failSettings, failMarkLeft error
 }
 
-func (f *fakeStore) UpsertGuilds(_ context.Context, g []store.Guild) error {
+func (f *syncStore) UpsertGuilds(_ context.Context, g []store.Guild) error {
 	f.upserted = append(f.upserted, g...)
 	return f.failUpsert
 }
 
-func (f *fakeStore) SeedSettingsFor(_ context.Context, g snowflake.ID, _ store.Defaults) error {
+func (f *syncStore) SeedSettingsFor(_ context.Context, g snowflake.ID, _ store.Defaults) error {
 	f.seeded = append(f.seeded, g)
 	return f.failSeed
 }
 
-func (f *fakeStore) UpsertSettings(_ context.Context, st store.Settings) error {
+func (f *syncStore) UpsertSettings(_ context.Context, st store.Settings) error {
 	f.settings++
 	f.tz = st.TZ
 	return f.failSettings
 }
 
-func (f *fakeStore) MarkGuildLeft(_ context.Context, g snowflake.ID) error {
+func (f *syncStore) MarkGuildLeft(_ context.Context, g snowflake.ID) error {
 	f.left = append(f.left, g)
 	return f.failMarkLeft
 }
 
-func (f *fakeStore) Migrate(context.Context) error                               { return nil }
-func (f *fakeStore) Ping(context.Context) error                                  { return nil }
-func (f *fakeStore) Close()                                                      {}
-func (f *fakeStore) ListSettings(context.Context) ([]store.Settings, error)      { return nil, nil }
-func (f *fakeStore) WritePlays(context.Context, []store.Play) error              { return nil }
-func (f *fakeStore) WriteMisc(context.Context, []store.Misc) error               { return nil }
-func (f *fakeStore) SeedSettings(context.Context, store.Defaults) (int64, error) { return 0, nil }
+func (f *syncStore) Migrate(context.Context) error                               { return nil }
+func (f *syncStore) Ping(context.Context) error                                  { return nil }
+func (f *syncStore) Close()                                                      {}
+func (f *syncStore) ListSettings(context.Context) ([]store.Settings, error)      { return nil, nil }
+func (f *syncStore) WritePlays(context.Context, []store.Play) error              { return nil }
+func (f *syncStore) WriteMisc(context.Context, []store.Misc) error               { return nil }
+func (f *syncStore) SeedSettings(context.Context, store.Defaults) (int64, error) { return 0, nil }
 
-func (f *fakeStore) MarkGuildsLeftExcept(context.Context, []snowflake.ID) ([]snowflake.ID, error) {
+func (f *syncStore) MarkGuildsLeftExcept(context.Context, []snowflake.ID) ([]snowflake.ID, error) {
 	return nil, nil
 }
 
-func (f *fakeStore) GuildStats(context.Context, snowflake.ID) (store.GuildStats, error) {
+func (f *syncStore) GuildStats(context.Context, snowflake.ID) (store.GuildStats, error) {
 	return store.GuildStats{}, nil
 }
 
-func (f *fakeStore) UserStats(context.Context, *snowflake.ID, snowflake.ID) (store.UserStats, error) {
+func (f *syncStore) UserStats(context.Context, *snowflake.ID, snowflake.ID) (store.UserStats, error) {
 	return store.UserStats{}, nil
 }
 
-func (*fakeStore) HeardSounds(context.Context, *snowflake.ID, snowflake.ID, []string) ([]string, error) {
+func (*syncStore) HeardSounds(context.Context, *snowflake.ID, snowflake.ID, []string) ([]string, error) {
 	return nil, nil
 }
 
-func (f *fakeStore) GlobalStats(context.Context) (store.GlobalStats, error) {
+func (f *syncStore) GlobalStats(context.Context) (store.GlobalStats, error) {
 	return store.GlobalStats{}, nil
 }
 
-func (f *fakeStore) Leaderboard(context.Context, snowflake.ID, string, int) ([]store.Row, error) {
+func (f *syncStore) Leaderboard(context.Context, snowflake.ID, string, int) ([]store.Row, error) {
 	return nil, nil
 }
 
-func (f *fakeStore) TopGuilds(context.Context, int) ([]store.Row, error) { return nil, nil }
-func (f *fakeStore) CharacterPlays(context.Context, *snowflake.ID) ([]store.Row, error) {
+func (f *syncStore) TopGuilds(context.Context, int) ([]store.Row, error) { return nil, nil }
+func (f *syncStore) CharacterPlays(context.Context, *snowflake.ID) ([]store.Row, error) {
 	return nil, nil
 }
-func (*fakeStore) Forget(context.Context, snowflake.ID) error { return nil }
-func (*fakeStore) UserRank(context.Context, snowflake.ID, snowflake.ID, time.Time) (store.UserRank, error) {
+func (*syncStore) Forget(context.Context, snowflake.ID) error { return nil }
+func (*syncStore) UserRank(context.Context, snowflake.ID, snowflake.ID, time.Time) (store.UserRank, error) {
 	return store.UserRank{}, nil
 }
-func (*fakeStore) UserRecent(context.Context, snowflake.ID, time.Time) (store.UserCounts, error) {
+func (*syncStore) UserRecent(context.Context, snowflake.ID, time.Time) (store.UserCounts, error) {
 	return store.UserCounts{}, nil
 }
-func (*fakeStore) GuildRecent(context.Context, snowflake.ID, time.Time) (store.GuildRecent, error) {
+func (*syncStore) GuildRecent(context.Context, snowflake.ID, time.Time) (store.GuildRecent, error) {
 	return store.GuildRecent{}, nil
 }
-func (*fakeStore) Cuts(context.Context, string, time.Time, time.Time) ([]float64, error) {
+func (*syncStore) Cuts(context.Context, string, time.Time, time.Time) ([]float64, error) {
 	return nil, nil
 }
 
-func (f *fakeStore) ListOptOuts(context.Context) ([]store.Silence, error) { return nil, nil }
-func (f *fakeStore) SetOptOut(context.Context, store.Silence) error       { return nil }
-func (f *fakeStore) ClearOptOut(context.Context, snowflake.ID) error      { return nil }
-func (f *fakeStore) ListQuiet(context.Context) ([]store.Silence, error)   { return nil, nil }
-func (f *fakeStore) SetQuiet(context.Context, store.Silence) error        { return nil }
-func (f *fakeStore) ClearQuiet(context.Context, snowflake.ID) error       { return nil }
+func (f *syncStore) ListOptOuts(context.Context) ([]store.Silence, error) { return nil, nil }
+func (f *syncStore) SetOptOut(context.Context, store.Silence) error       { return nil }
+func (f *syncStore) ClearOptOut(context.Context, snowflake.ID) error      { return nil }
+func (f *syncStore) ListQuiet(context.Context) ([]store.Silence, error)   { return nil, nil }
+func (f *syncStore) SetQuiet(context.Context, store.Silence) error        { return nil }
+func (f *syncStore) ClearQuiet(context.Context, snowflake.ID) error       { return nil }
 
 // A join writes the guild row, seeds its settings, and fills in a zone from its locale. The
 // defaults are only written when there is something non-zero to write; the zone always is, for a
@@ -127,7 +127,7 @@ func TestGuildJoinedSyncWrites(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			db := &fakeStore{}
+			db := &syncStore{}
 			joined := time.Now().UTC().Truncate(time.Second)
 
 			h := GuildJoinedSync(db, settings.New(db), tt.defaults)
@@ -150,7 +150,7 @@ func TestGuildJoinedSyncWrites(t *testing.T) {
 
 // The zone a new guild gets is the one its locale points at, written, not worked out later.
 func TestGuildJoinedSyncFillsTheZone(t *testing.T) {
-	db := &fakeStore{}
+	db := &syncStore{}
 	if err := GuildJoinedSync(db, settings.New(db), store.Defaults{})(t.Context(), gatewayGuild(testGuild, time.Time{})); err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestGuildJoinedSyncFillsTheZone(t *testing.T) {
 // A guild coming back with a zone already keeps it.
 func TestGuildJoinedSyncKeepsAZone(t *testing.T) {
 	const back = snowflake.ID(43)
-	db := &fakeStore{}
+	db := &syncStore{}
 	set := settings.New(db)
 	tz := "Asia/Tokyo"
 	if _, err := set.Update(t.Context(), back, 1, func(s *settings.Settings) { s.TZ = &tz }); err != nil {
@@ -180,7 +180,7 @@ func TestGuildJoinedSyncKeepsAZone(t *testing.T) {
 // mirror, or the bot would play by the profile's defaults until the next restart reloaded the row.
 func TestGuildJoinedSyncKeepsChosenSettings(t *testing.T) {
 	const back = snowflake.ID(44)
-	db := &fakeStore{}
+	db := &syncStore{}
 	set := settings.New(db)
 	if _, err := set.Update(t.Context(), back, 1, func(s *settings.Settings) { s.Chance, s.Suspense = 90, 3 }); err != nil {
 		t.Fatal(err)
@@ -200,12 +200,12 @@ func TestGuildJoinedSyncKeepsChosenSettings(t *testing.T) {
 func TestGuildJoinedSyncReturnsEachStepsError(t *testing.T) {
 	tests := []struct {
 		name string
-		db   *fakeStore
+		db   *syncStore
 		want error
 	}{
-		{"upsert", &fakeStore{failUpsert: errUpsert}, errUpsert},
-		{"seed", &fakeStore{failSeed: errSeed}, errSeed},
-		{"settings", &fakeStore{failSettings: errSettings}, errSettings},
+		{"upsert", &syncStore{failUpsert: errUpsert}, errUpsert},
+		{"seed", &syncStore{failSeed: errSeed}, errSeed},
+		{"settings", &syncStore{failSettings: errSettings}, errSettings},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -220,7 +220,7 @@ func TestGuildJoinedSyncReturnsEachStepsError(t *testing.T) {
 // A failing upsert must not go on to seed: retrying the whole handler is what puts the guild row
 // and its settings row back in order, and a partial write makes that retry a different operation.
 func TestGuildJoinedSyncStopsAtTheFirstFailure(t *testing.T) {
-	db := &fakeStore{failUpsert: errUpsert}
+	db := &syncStore{failUpsert: errUpsert}
 
 	h := GuildJoinedSync(db, settings.New(db), store.Defaults{Chance: 5})
 	if err := h(t.Context(), gatewayGuild(testGuild, time.Time{})); !errors.Is(err, errUpsert) {
@@ -248,7 +248,7 @@ func gatewayGuild(id snowflake.ID, joined time.Time) *discord.GatewayGuild {
 // What reaches this handler is a Discord frame, so every one of them is a live departure. The
 // reconciled case it used to branch on is a domain event now and never arrives here.
 func TestGuildLeftSyncWritesTheRow(t *testing.T) {
-	db := &fakeStore{}
+	db := &syncStore{}
 	h := GuildLeftSync(db)
 	if err := h(t.Context(), &discord.Guild{ID: testGuild}); err != nil {
 		t.Fatalf("handler returned %v, want nil", err)
@@ -259,20 +259,20 @@ func TestGuildLeftSyncWritesTheRow(t *testing.T) {
 }
 
 func TestGuildLeftSyncReturnsTheStoreError(t *testing.T) {
-	db := &fakeStore{failMarkLeft: errMarkLeft}
+	db := &syncStore{failMarkLeft: errMarkLeft}
 	h := GuildLeftSync(db)
 	if err := h(t.Context(), &discord.Guild{ID: testGuild}); !errors.Is(err, errMarkLeft) {
 		t.Errorf("handler returned %v, want %v", err, errMarkLeft)
 	}
 }
 
-func (f *fakeStore) ListChaos(context.Context) ([]store.Chaos, error) { return nil, nil }
-func (f *fakeStore) AppendChaos(context.Context, store.Chaos) error   { return nil }
+func (f *syncStore) ListChaos(context.Context) ([]store.Chaos, error) { return nil, nil }
+func (f *syncStore) AppendChaos(context.Context, store.Chaos) error   { return nil }
 
-func (*fakeStore) PlaysHourly(context.Context, *snowflake.ID, time.Time) ([]store.PlayHour, error) {
+func (*syncStore) PlaysHourly(context.Context, *snowflake.ID, time.Time) ([]store.PlayHour, error) {
 	return nil, nil
 }
-func (*fakeStore) UserHourly(context.Context, *snowflake.ID, snowflake.ID, time.Time) ([]store.UserHour, error) {
+func (*syncStore) UserHourly(context.Context, *snowflake.ID, snowflake.ID, time.Time) ([]store.UserHour, error) {
 	return nil, nil
 }
-func (*fakeStore) RefreshAnalytics(context.Context) error { return nil }
+func (*syncStore) RefreshAnalytics(context.Context) error { return nil }

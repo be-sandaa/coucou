@@ -81,8 +81,8 @@ func TestKeepAliveHoldsTheRunnerOpen(t *testing.T) {
 	go func() { done <- r.Run() }()
 
 	select {
-	case <-done:
-		t.Fatal("Run returned even though KeepAlive was registered")
+	case err := <-done:
+		t.Fatalf("Run returned (%v) even though KeepAlive was registered", err)
 	case <-time.After(200 * time.Millisecond):
 	}
 
@@ -167,7 +167,9 @@ func TestStopsGetALiveContext(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- r.Run() }()
 	cancel()
-	<-done
+	if err := <-done; err != nil {
+		t.Fatalf("Run: %v", err)
+	}
 
 	// The run context is already cancelled by now; stops must get a fresh budget instead, or every
 	// graceful shutdown would abort immediately.

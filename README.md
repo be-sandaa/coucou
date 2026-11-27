@@ -123,7 +123,7 @@ walks through both in three steps.
 | 🔊 | [Sounds](https://github.com/be-sandaa/coucou/wiki/Sounds) | encoding, naming, tags, sound emojis |
 | 💬 | [Commands](https://github.com/be-sandaa/coucou/wiki/Commands) | every slash command and who may run it |
 | 🛠️ | [Development](https://github.com/be-sandaa/coucou/wiki/Development) | building, testing, the image |
-| 🧭 | [Architecture](https://github.com/be-sandaa/coucou/wiki/Architecture) | how a play happens, the database, the bus, memory |
+| 🧭 | [Architecture](https://github.com/be-sandaa/coucou/wiki/Architecture) | how a play happens, the database, direct calls, memory |
 
 ## 🛠️ Hacking on it
 

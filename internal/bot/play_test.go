@@ -10,15 +10,15 @@ import (
 
 	"github.com/disgoorg/snowflake/v2"
 
-	"github.com/be-sandaa/coucou/internal/bus"
 	"github.com/be-sandaa/coucou/internal/events"
+	"github.com/be-sandaa/coucou/internal/store"
 	"github.com/be-sandaa/coucou/internal/voice"
 )
 
 // The first played clips of the planned walk are the ones that played; a fake-out plays none.
 func TestMarkPlayed(t *testing.T) {
 	const who = "who"
-	plan := []bus.PlaySound{{Sound: "knock"}, {Sound: who, Gap: 2 * time.Second}, {Sound: "rim"}}
+	plan := []store.PlaySound{{Sound: "knock"}, {Sound: who, Gap: 2 * time.Second}, {Sound: "rim"}}
 	tests := []struct {
 		name   string
 		played int

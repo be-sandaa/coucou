@@ -13,8 +13,9 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/be-sandaa/coucou/internal/bus"
 	"github.com/be-sandaa/coucou/internal/events"
+	"github.com/be-sandaa/coucou/internal/metrics"
+	"github.com/be-sandaa/coucou/internal/store"
 	"github.com/be-sandaa/coucou/internal/voice"
 )
 
@@ -64,8 +65,7 @@ func fled(before, after []snowflake.ID) []snowflake.ID {
 	return out
 }
 
-// PlayRequest is one request to play something. It is not a bus event: the loop and /play call the
-// player directly, so there is no delivery between asking and playing, and nothing to marshal.
+// PlayRequest is one request to play something: the loop and /play call the player directly.
 //
 // Sound may be empty, which means "pick one at play time" — the player is the last moment before
 // the clip is read, so a file added since the request was made is fair game.
@@ -85,12 +85,12 @@ type PlayRequest struct {
 	Preview []string
 }
 
-// play is one join→play→leave, reporting the outcome on the bus whatever happened — except when
-// the guild was already busy, where nothing happened and there is nothing to report. The error is
-// the visit's own, for deciding what follows it; the outcome has already been published. A chain's
+// play is one join→play→leave, recording the outcome whatever happened — except when the guild
+// was already busy, where nothing happened and there is nothing to record. The error is the
+// visit's own, for deciding what follows it; the outcome has already been recorded. A chain's
 // clips all play inside the one visit, which is reported under sound, its opener, with plan (the
 // clips by name, in order) marked by how many of them played.
-func play(ctx context.Context, c *bot.Client, b *bus.Bus, e *PlayRequest, character, sound string, clips []voice.Clip, plan []bus.PlaySound) error {
+func play(ctx context.Context, c *bot.Client, log *events.Log, e *PlayRequest, character, sound string, clips []voice.Clip, plan []store.PlaySound) error {
 	humans := voice.Humans(c, e.Guild, e.Channel)
 	started := time.Now()
 
@@ -101,21 +101,21 @@ func play(ctx context.Context, c *bot.Client, b *bus.Bus, e *PlayRequest, charac
 		StillPopulated: func() bool { return len(voice.Humans(c, e.Guild, e.Channel)) > 0 },
 		Leaving:        func() { stayed = voice.Humans(c, e.Guild, e.Channel) },
 	})
-	out := bus.PlayFinished{
-		Guild: e.Guild, Channel: e.Channel, Sound: sound, Trigger: e.Trigger, User: e.User,
-		Listeners: humans, OK: err == nil && !e.FakeOut, StartedAt: started, Duration: time.Since(started),
+	out := events.Play{
+		At: started, Guild: e.Guild, Channel: e.Channel, Sound: sound, Trigger: e.Trigger, User: e.User,
+		ListenerIDs: humans, OK: err == nil && !e.FakeOut, Duration: time.Since(started),
 		Character: character, Suspense: e.Suspense, Sounds: markPlayed(plan, played),
 	}
 	if err == nil && e.FakeOut {
 		out.Reason = outcomeFakeOut
 	}
 	if fleeable[events.Trigger(e.Trigger)] {
-		out.Fled = fled(humans, stayed)
+		out.FledIDs = fled(humans, stayed)
 	}
 	if err != nil {
 		r, report := reason(err, stage)
 		if !report {
-			return err // nothing happened, so there is nothing to publish
+			return err // nothing happened, so there is nothing to record
 		}
 		out.Reason = r
 		span := trace.SpanFromContext(ctx)
@@ -126,13 +126,24 @@ func play(ctx context.Context, c *bot.Client, b *bus.Bus, e *PlayRequest, charac
 			slog.String("sound", sound), slog.String("stage", stage), slog.Any("err", err))
 	}
 	if len(e.Preview) == 0 {
-		b.Publish(ctx, out)
+		record(log, out)
 	}
 	return err
 }
 
+// record counts a finished visit in the metrics and the stats log.
+func record(log *events.Log, p events.Play) {
+	outcome := p.Reason
+	if p.OK {
+		outcome = "ok"
+	}
+	metrics.PlaysTotal.WithLabelValues(p.Trigger, outcome).Inc()
+	metrics.PlayDuration.WithLabelValues(p.Trigger).Observe(p.Duration.Seconds())
+	log.RecordPlay(p)
+}
+
 // markPlayed is plan with its first played clips marked as played, the rest as cut short.
-func markPlayed(plan []bus.PlaySound, played int) []bus.PlaySound {
+func markPlayed(plan []store.PlaySound, played int) []store.PlaySound {
 	out := slices.Clone(plan)
 	for i := range out {
 		out[i].Played = i < played
@@ -148,7 +159,7 @@ func encoreDue(e *PlayRequest, err error) bool {
 
 // encore waits out the gap, then asks the player again. It runs outside the pool so the wait holds
 // no slot. ctx is the loop's, which run cancels before any stop, so a pending encore is gone before
-// Bus.Close drains — and the player refuses a cancelled ctx, the same guard the loop relies on.
+// the pool drains — and the player refuses a cancelled ctx, the same guard the loop relies on.
 //
 // welcome repeats the loop's checks, since the room had up to thirty seconds to change. A no drops
 // the encore without a record: nothing was attempted.
