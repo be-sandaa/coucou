@@ -171,17 +171,25 @@ func insertPlay(ctx context.Context, q *gen.Queries, p store.Play) error {
 	if p.Reason != "" {
 		reason = &p.Reason
 	}
+	suspense := p.Suspense.Milliseconds()
 	id, err := q.InsertPlay(ctx, gen.InsertPlayParams{
 		At: fmtT(p.At), GuildID: i64(p.Guild), ChannelID: i64(p.Channel), Sound: p.Sound, Trigger: p.Trigger,
 		UserID: idp(p.User), Listeners: int64(len(p.ListenerIDs)), Ok: b2i(p.OK), Reason: reason,
-		DurationMs: p.Duration.Milliseconds(), Character: strp(p.Character),
+		DurationMs: p.Duration.Milliseconds(), Character: strp(p.Character), SuspenseMs: &suspense, Heard: b2i(p.Heard()),
 	})
 	if err != nil {
 		return err
 	}
+	for i, c := range p.Clips() {
+		if err := q.InsertPlaySound(ctx, gen.InsertPlaySoundParams{
+			PlayID: id, Position: int64(i), Sound: c.Sound, GapMs: c.Gap.Milliseconds(), Played: b2i(c.Played),
+		}); err != nil {
+			return err
+		}
+	}
 	for _, u := range p.ListenerIDs {
 		fled := slices.Contains(p.FledIDs, u)
-		if !p.OK && !fled {
+		if !fled && !p.Heard() {
 			continue
 		}
 		if err := q.InsertPlayListener(ctx, gen.InsertPlayListenerParams{PlayID: id, UserID: i64(u), Fled: b2i(fled)}); err != nil {

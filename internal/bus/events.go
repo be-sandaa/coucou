@@ -25,6 +25,16 @@ type PlayFinished struct {
 	StartedAt time.Time      `json:"started_at"`
 	Duration  time.Duration  `json:"duration" validate:"min=0"`
 	Character string         `json:"character,omitempty"`
+	Suspense  time.Duration  `json:"suspense,omitempty"`
+	// Sounds is every clip the visit planned, Sounds[0] the opener, each marked played or cut.
+	Sounds []PlaySound `json:"sounds,omitempty"`
+}
+
+// PlaySound is one clip of a visit: its sound, the silence before it, and whether it played.
+type PlaySound struct {
+	Sound  string        `json:"sound"`
+	Gap    time.Duration `json:"gap,omitempty"`
+	Played bool          `json:"played"`
 }
 
 // GuildLeft is the boot reconcile only: a guild the bot was in when it went down and is not in now.

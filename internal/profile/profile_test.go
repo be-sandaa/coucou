@@ -44,6 +44,11 @@ func TestMinimalProfile(t *testing.T) {
 	}
 }
 
+const (
+	knock = "knock"
+	who   = "who"
+)
+
 func TestEveryKeyIsRead(t *testing.T) {
 	dir := write(t, `
 id       = "lenore"
@@ -65,12 +70,18 @@ suspense = 20
 fakeout  = 50
 encore   = 50
 
-[[chains]]
-chance = 80
-steps  = [{ sound = "knock" }, { sound = "who", after = 2 }, { sound = "rim" }]
+[chaining]
+chance   = 80
+decay    = 0.7
+max_hops = 5
 
 [[chains]]
-steps = [{ sound = "drum" }, { sound = "clap", after = 0.35 }]
+sound = "knock"
+next  = [{ sound = "who", weight = 70, after = 2 }, { sound = "rim", weight = 30 }]
+
+[[chains]]
+sound = "who"
+next  = [{ sound = "knock", weight = 1, after = 0.35 }]
 
 [[links]]
 from = "snare"
@@ -90,11 +101,10 @@ online   = "dnd"
 		Tagline: "Mean, nicely.", Lore: "Came anyway.", Traits: []string{"sits in silence", "leaves without a sound"},
 		// An explicit 0 chance is opt-in, not "unset": it must not fall back to 5.
 		Defaults: store.Defaults{Chance: 0, Suspense: MaxSuspense, FakeOut: MaxFakeOut, Encore: MaxEncore},
-		Chains: []sounds.Chain{
-			{Chance: 80, Steps: []sounds.Step{{Sound: "knock"}, {Sound: "who", After: 2 * time.Second}, {Sound: "rim"}}},
-			// Left out, a chain's chance is 100, not 0: listing one means wanting it to play.
-			{Chance: 100, Steps: []sounds.Step{{Sound: "drum"}, {Sound: "clap", After: 350 * time.Millisecond}}},
-		},
+		Chains: sounds.Chains{Chance: 80, Decay: 0.7, MaxHops: 5, Next: map[string][]sounds.Edge{
+			knock: {{Sound: who, Weight: 70, After: 2 * time.Second}, {Sound: "rim", Weight: 30}},
+			who:   {{Sound: knock, Weight: 1, After: 350 * time.Millisecond}},
+		}},
 		Links:    sounds.Links{"snare": {"boo": 70, "sad-trombone": 30}},
 		Status:   Status{Text: "🖤 lurking", Activity: discord.ActivityTypeListening, Online: discord.OnlineStatusDND},
 		App:      912694340814516254,
@@ -103,6 +113,22 @@ online   = "dnd"
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got  %+v\nwant %+v", got, want)
+	}
+}
+
+// Chains without a [chaining] table play at 100%, no decay, 8 hops; no chains leaves the graph empty.
+func TestChainingDefaults(t *testing.T) {
+	got, err := Load(write(t, "id = \"x\"\n[[chains]]\nsound = \"a\"\nnext = [{ sound = \"a\", weight = 1 }]"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := sounds.Chains{Chance: 100, Decay: 1, MaxHops: 8, Next: map[string][]sounds.Edge{"a": {{Sound: "a", Weight: 1}}}}
+	if !reflect.DeepEqual(got.Chains, want) {
+		t.Errorf("Chains = %+v, want %+v", got.Chains, want)
+	}
+	got, err = Load(write(t, `id = "x"`))
+	if err != nil || !reflect.DeepEqual(got.Chains, sounds.Chains{}) {
+		t.Errorf("no chains: Chains = %+v, %v; want zero", got.Chains, err)
 	}
 }
 
@@ -128,15 +154,25 @@ func TestInvalidProfiles(t *testing.T) {
 		{"suspense above 20", "id = \"x\"\n[defaults]\nsuspense = 21"},
 		{"fakeout above 50", "id = \"x\"\n[defaults]\nfakeout = 51"},
 		{"encore above 50", "id = \"x\"\n[defaults]\nencore = 51"},
-		{"chain of one step", "id = \"x\"\n[[chains]]\nsteps = [{ sound = \"a\" }]"},
-		{"chain chance above 100", "id = \"x\"\n[[chains]]\nchance = 101\nsteps = [{ sound = \"a\" }, { sound = \"b\" }]"},
-		{"chain step without a sound", "id = \"x\"\n[[chains]]\nsteps = [{ sound = \"a\" }, { after = 1 }]"},
-		{"chain gap above 20", "id = \"x\"\n[[chains]]\nsteps = [{ sound = \"a\" }, { sound = \"b\", after = 21 }]"},
-		{"chain gap just above 20", "id = \"x\"\n[[chains]]\nsteps = [{ sound = \"a\" }, { sound = \"b\", after = 20.001 }]"},
-		{"chain gap negative", "id = \"x\"\n[[chains]]\nsteps = [{ sound = \"a\" }, { sound = \"b\", after = -0.2 }]"},
-		{"chain gap nan", "id = \"x\"\n[[chains]]\nsteps = [{ sound = \"a\" }, { sound = \"b\", after = nan }]"},
-		{"unknown chain step key", "id = \"x\"\n[[chains]]\nsteps = [{ sound = \"a\" }, { sound = \"b\", delay = 1 }]"},
-		{"two chains, one opener", "id = \"x\"\n[[chains]]\nsteps = [{ sound = \"a\" }, { sound = \"b\" }]\n[[chains]]\nsteps = [{ sound = \"a\" }, { sound = \"c\" }]"},
+		{"chaining chance above 100", "id = \"x\"\n[chaining]\nchance = 101"},
+		{"chaining chance negative", "id = \"x\"\n[chaining]\nchance = -1"},
+		{"decay above 1", "id = \"x\"\n[chaining]\ndecay = 1.1"},
+		{"decay negative", "id = \"x\"\n[chaining]\ndecay = -0.1"},
+		{"decay nan", "id = \"x\"\n[chaining]\ndecay = nan"},
+		{"max hops 0", "id = \"x\"\n[chaining]\nmax_hops = 0"},
+		{"max hops above 20", "id = \"x\"\n[chaining]\nmax_hops = 21"},
+		{"unknown chaining key", "id = \"x\"\n[chaining]\nhops = 3"},
+		{"chain without a sound", "id = \"x\"\n[[chains]]\nnext = [{ sound = \"b\", weight = 1 }]"},
+		{"chain with no next", "id = \"x\"\n[[chains]]\nsound = \"a\""},
+		{"edge without a sound", "id = \"x\"\n[[chains]]\nsound = \"a\"\nnext = [{ weight = 1 }]"},
+		{"edge weight 0", "id = \"x\"\n[[chains]]\nsound = \"a\"\nnext = [{ sound = \"b\" }]"},
+		{"edge gap above 20", "id = \"x\"\n[[chains]]\nsound = \"a\"\nnext = [{ sound = \"b\", weight = 1, after = 21 }]"},
+		{"edge gap just above 20", "id = \"x\"\n[[chains]]\nsound = \"a\"\nnext = [{ sound = \"b\", weight = 1, after = 20.001 }]"},
+		{"edge gap negative", "id = \"x\"\n[[chains]]\nsound = \"a\"\nnext = [{ sound = \"b\", weight = 1, after = -0.2 }]"},
+		{"edge gap nan", "id = \"x\"\n[[chains]]\nsound = \"a\"\nnext = [{ sound = \"b\", weight = 1, after = nan }]"},
+		{"unknown edge key", "id = \"x\"\n[[chains]]\nsound = \"a\"\nnext = [{ sound = \"b\", weight = 1, delay = 1 }]"},
+		{"old steps format", "id = \"x\"\n[[chains]]\nsteps = [{ sound = \"a\" }, { sound = \"b\" }]"},
+		{"two chains, one sound", "id = \"x\"\n[[chains]]\nsound = \"a\"\nnext = [{ sound = \"b\", weight = 1 }]\n[[chains]]\nsound = \"a\"\nnext = [{ sound = \"c\", weight = 1 }]"},
 		{"link without from", "id = \"x\"\n[[links]]\nto = { b = 1 }"},
 		{"link to nothing", "id = \"x\"\n[[links]]\nfrom = \"a\""},
 		{"link weight 0", "id = \"x\"\n[[links]]\nfrom = \"a\"\nto = { b = 0 }"},

@@ -37,6 +37,7 @@ const (
 	MaxFakeOut  = 50
 	MaxEncore   = 50
 	MaxAfter    = 20  // seconds of silence before a chain's step
+	MaxHops     = 20  // sounds a chain can add to a visit, whatever its odds
 	MaxStatus   = 128 // characters of status text, Discord's custom status limit
 	MaxPreview  = 3   // sounds /character preview plays
 )
@@ -70,7 +71,7 @@ type Profile struct {
 	Lore     string
 	Traits   []string
 	Defaults store.Defaults
-	Chains   []sounds.Chain
+	Chains   sounds.Chains
 	Links    sounds.Links
 	Status   Status
 	App      snowflake.ID // the character's own bot, zero when it has none
@@ -127,12 +128,18 @@ type file struct {
 		FakeOut  int `toml:"fakeout"`
 		Encore   int `toml:"encore"`
 	} `toml:"defaults"`
+	Chaining struct {
+		Chance  *int     `toml:"chance"`   // nil is 100: listing chains means wanting them to play
+		Decay   *float64 `toml:"decay"`    // nil is 1, no decay
+		MaxHops *int     `toml:"max_hops"` // nil is defaultHops
+	} `toml:"chaining"`
 	Chains []struct {
-		Chance *int `toml:"chance"` // nil is 100: a chain that never plays is not what leaving it out means
-		Steps  []struct {
-			Sound string  `toml:"sound"`
-			After float64 `toml:"after"` // seconds, to the millisecond: a breath between two clips is well under one
-		} `toml:"steps"`
+		Sound string `toml:"sound"`
+		Next  []struct {
+			Sound  string  `toml:"sound"`
+			Weight int     `toml:"weight"`
+			After  float64 `toml:"after"` // seconds, to the millisecond: a breath between two clips is well under one
+		} `toml:"next"`
 	} `toml:"chains"`
 	Links []struct {
 		From string         `toml:"from"`
@@ -289,39 +296,70 @@ func (f file) parse(dir string) (Profile, error) {
 	}, nil
 }
 
+// defaultHops caps a walk when the profile does not: long enough for a loop to come round a few
+// times, short enough that a visit is still one bit and not a set.
+const defaultHops = 8
+
 // chains are checked against the profile alone: a sound with no file is fine, it may arrive later.
-func (f file) chains() ([]sounds.Chain, error) {
-	var out []sounds.Chain
-	openers := map[string]bool{}
-	for i, c := range f.Chains {
+func (f file) chains() (sounds.Chains, error) {
+	out, err := f.chaining()
+	if err != nil || len(f.Chains) == 0 {
+		return sounds.Chains{}, err
+	}
+	out.Next = make(map[string][]sounds.Edge, len(f.Chains))
+	for i, ch := range f.Chains {
 		key := fmt.Sprintf("chains[%d]", i)
-		if len(c.Steps) < 2 {
-			return nil, fmt.Errorf("%s: want at least two steps", key)
+		switch {
+		case ch.Sound == "":
+			return sounds.Chains{}, fmt.Errorf("%s: sound is empty", key)
+		case len(ch.Next) == 0:
+			return sounds.Chains{}, fmt.Errorf("%s: next is empty", key)
+		case out.Next[ch.Sound] != nil:
+			return sounds.Chains{}, fmt.Errorf("%s: %q already has a chain", key, ch.Sound)
 		}
-		chance := MaxChance
-		if c.Chance != nil {
-			chance = *c.Chance
-		}
-		if err := inRange(key+".chance", chance, MaxChance); err != nil {
-			return nil, err
-		}
-		steps := make([]sounds.Step, len(c.Steps))
-		for j, s := range c.Steps {
-			if s.Sound == "" {
-				return nil, fmt.Errorf("%s.steps[%d]: sound is empty", key, j)
+		edges := make([]sounds.Edge, len(ch.Next))
+		for j, e := range ch.Next {
+			if edges[j], err = edge(fmt.Sprintf("%s.next[%d]", key, j), e.Sound, e.Weight, e.After); err != nil {
+				return sounds.Chains{}, err
 			}
-			if !(s.After >= 0 && s.After <= MaxAfter) { // also refuses NaN
-				return nil, fmt.Errorf("%s.steps[%d].after %g is outside 0-%d", key, j, s.After, MaxAfter)
-			}
-			steps[j] = sounds.Step{Sound: s.Sound, After: time.Duration(math.Round(s.After*1000)) * time.Millisecond}
 		}
-		if openers[steps[0].Sound] {
-			return nil, fmt.Errorf("%s: %q already opens another chain", key, steps[0].Sound)
-		}
-		openers[steps[0].Sound] = true
-		out = append(out, sounds.Chain{Chance: chance, Steps: steps})
+		out.Next[ch.Sound] = edges
 	}
 	return out, nil
+}
+
+// chaining reads [chaining] over its defaults, checked even when no chain would use it.
+func (f file) chaining() (sounds.Chains, error) {
+	c := f.Chaining
+	out := sounds.Chains{Chance: MaxChance, Decay: 1, MaxHops: defaultHops}
+	if c.Chance != nil {
+		out.Chance = *c.Chance
+	}
+	if c.Decay != nil {
+		out.Decay = *c.Decay
+	}
+	if c.MaxHops != nil {
+		out.MaxHops = *c.MaxHops
+	}
+	switch {
+	case !(out.Decay >= 0 && out.Decay <= 1): // also refuses NaN
+		return out, fmt.Errorf("chaining.decay %g is outside 0-1", out.Decay)
+	case out.MaxHops < 1 || out.MaxHops > MaxHops:
+		return out, fmt.Errorf("chaining.max_hops %d is outside 1-%d", out.MaxHops, MaxHops)
+	}
+	return out, inRange("chaining.chance", out.Chance, MaxChance)
+}
+
+func edge(key, sound string, weight int, after float64) (sounds.Edge, error) {
+	switch {
+	case sound == "":
+		return sounds.Edge{}, fmt.Errorf("%s: sound is empty", key)
+	case weight <= 0:
+		return sounds.Edge{}, fmt.Errorf("%s.weight %d, want more than 0", key, weight)
+	case !(after >= 0 && after <= MaxAfter): // also refuses NaN
+		return sounds.Edge{}, fmt.Errorf("%s.after %g is outside 0-%d", key, after, MaxAfter)
+	}
+	return sounds.Edge{Sound: sound, Weight: weight, After: time.Duration(math.Round(after*1000)) * time.Millisecond}, nil
 }
 
 func (f file) links() (sounds.Links, error) {

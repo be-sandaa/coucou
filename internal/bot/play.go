@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/disgoorg/disgo/bot"
@@ -87,13 +88,14 @@ type PlayRequest struct {
 // play is one join→play→leave, reporting the outcome on the bus whatever happened — except when
 // the guild was already busy, where nothing happened and there is nothing to report. The error is
 // the visit's own, for deciding what follows it; the outcome has already been published. A chain's
-// clips all play inside the one visit, which is reported under sound, its opener.
-func play(ctx context.Context, c *bot.Client, b *bus.Bus, e *PlayRequest, character, sound string, clips []voice.Clip) error {
+// clips all play inside the one visit, which is reported under sound, its opener, with plan (the
+// clips by name, in order) marked by how many of them played.
+func play(ctx context.Context, c *bot.Client, b *bus.Bus, e *PlayRequest, character, sound string, clips []voice.Clip, plan []bus.PlaySound) error {
 	humans := voice.Humans(c, e.Guild, e.Channel)
 	started := time.Now()
 
 	var stayed []snowflake.ID
-	stage, err := voice.Play(ctx, c, e.Guild, e.Channel, clips, voice.Opts{
+	stage, played, err := voice.Play(ctx, c, e.Guild, e.Channel, clips, voice.Opts{
 		Suspense:       e.Suspense,
 		Silent:         e.FakeOut,
 		StillPopulated: func() bool { return len(voice.Humans(c, e.Guild, e.Channel)) > 0 },
@@ -102,7 +104,7 @@ func play(ctx context.Context, c *bot.Client, b *bus.Bus, e *PlayRequest, charac
 	out := bus.PlayFinished{
 		Guild: e.Guild, Channel: e.Channel, Sound: sound, Trigger: e.Trigger, User: e.User,
 		Listeners: humans, OK: err == nil && !e.FakeOut, StartedAt: started, Duration: time.Since(started),
-		Character: character,
+		Character: character, Suspense: e.Suspense, Sounds: markPlayed(plan, played),
 	}
 	if err == nil && e.FakeOut {
 		out.Reason = outcomeFakeOut
@@ -127,6 +129,15 @@ func play(ctx context.Context, c *bot.Client, b *bus.Bus, e *PlayRequest, charac
 		b.Publish(ctx, out)
 	}
 	return err
+}
+
+// markPlayed is plan with its first played clips marked as played, the rest as cut short.
+func markPlayed(plan []bus.PlaySound, played int) []bus.PlaySound {
+	out := slices.Clone(plan)
+	for i := range out {
+		out[i].Played = i < played
+	}
+	return out
 }
 
 // encoreDue is whether a visit comes back: only a loop visit that went through, a clean fake-out

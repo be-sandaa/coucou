@@ -1,6 +1,7 @@
 package voice
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -105,14 +106,23 @@ func Shutdown(ctx context.Context) {
 }
 
 // Play joins, optionally sits in silence, plays each clip in turn on the one connection, leaves.
-// Always leaves. Returns the stage it failed in ("join", "suspense", "play") for the stats table.
-func Play(ctx context.Context, client *bot.Client, guild, channel snowflake.ID, clips []Clip, o Opts) (stage string, err error) { //nolint:gocyclo // one error branch per join/dave/suspense/play stage; splitting hides the sequence
+// Always leaves. Returns the stage it failed in ("join", "suspense", "play") for the stats table, and
+// how many clips finished.
+func Play(ctx context.Context, client *bot.Client, guild, channel snowflake.ID, clips []Clip, o Opts) (stage string, played int, err error) { //nolint:gocyclo // one error branch per join/dave/suspense/play stage; splitting hides the sequence
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	if _, loaded := busy.LoadOrStore(guild, cancel); loaded {
-		return StageJoin, ErrBusy
+		return StageJoin, 0, ErrBusy
 	}
 	defer busy.Delete(guild)
+
+	// Loaded before joining, so a missing or broken clip fails the visit before anyone sees the bot.
+	var st *stream
+	if !o.Silent {
+		if st, err = load(clips); err != nil {
+			return StagePlay, 0, err
+		}
+	}
 
 	stage = StageJoin
 	conn, err := join(ctx, client, guild, channel)
@@ -121,53 +131,59 @@ func Play(ctx context.Context, client *bot.Client, guild, channel snowflake.ID, 
 		defer o.Leaving()
 	}
 	if err != nil {
-		return stage, err
+		return stage, 0, err
 	}
 
 	if o.Suspense > 0 {
 		stage = StageSuspense
 		if err := sleep(ctx, o.Suspense); err != nil {
-			return stage, err
+			return stage, 0, err
 		}
 		if o.StillPopulated != nil && !o.StillPopulated() {
-			return stage, ErrEveryoneLeft
+			return stage, 0, ErrEveryoneLeft
 		}
 	}
 	if o.Silent {
-		return stage, nil
+		return stage, 0, nil
 	}
 
 	stage = StagePlay
 	if err = sleep(ctx, joinChime-o.Suspense); err != nil {
-		return stage, err
+		return stage, 0, err
 	}
 	if err = conn.SetSpeaking(ctx, voice.SpeakingFlagMicrophone); err != nil {
-		return stage, err
+		return stage, 0, err
 	}
-	if err = playClips(ctx, conn, clips, o.StillPopulated); err != nil {
-		return stage, err
+	if played, err = playClips(ctx, conn, st, clips, o.StillPopulated); err != nil {
+		return stage, played, err
 	}
 	// let the last frame drain before tearing the UDP socket down
 	time.Sleep(100 * time.Millisecond)
-	return stage, nil
+	return stage, played, nil
 }
 
-func playClips(ctx context.Context, conn voice.Conn, clips []Clip, stillPopulated func() bool) error {
+// playClips hands conn the whole visit as one stream and returns how many clips finished. Each clip
+// gets its gap and ClipTimeout to end in; after one ends, an emptied room stops the visit early
+// rather than failing it.
+func playClips(ctx context.Context, conn voice.Conn, st *stream, clips []Clip, stillPopulated func() bool) (played int, err error) {
+	conn.SetOpusFrameProvider(st)
 	for i, c := range clips {
-		if i > 0 {
-			if err := sleep(ctx, c.Gap); err != nil {
-				return err
-			}
-			// The first clip played, so an emptied room ends the visit early rather than failing it.
-			if stillPopulated != nil && !stillPopulated() {
-				return nil
-			}
+		t := time.NewTimer(c.Gap + ClipTimeout)
+		select {
+		case <-st.ended:
+			t.Stop()
+			played++
+		case <-t.C:
+			return played, ErrPlayTimeout
+		case <-ctx.Done():
+			t.Stop()
+			return played, ctx.Err()
 		}
-		if err := playClip(ctx, conn, c.File); err != nil {
-			return err
+		if i < len(clips)-1 && stillPopulated != nil && !stillPopulated() {
+			return played, nil
 		}
 	}
-	return nil
+	return played, nil
 }
 
 func sleep(ctx context.Context, d time.Duration) error {
@@ -177,27 +193,6 @@ func sleep(ctx context.Context, d time.Duration) error {
 	select {
 	case <-time.After(d):
 		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-// playClip returns once the file has been handed out. The provider stays set and plays silence
-// until the next clip replaces it, which is what holds a gap open without leaving.
-func playClip(ctx context.Context, conn voice.Conn, file string) error {
-	f, err := os.Open(file)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = f.Close() }() //nolint:errcheck // read-only playback source
-
-	done := make(chan struct{})
-	conn.SetOpusFrameProvider(&notifyingProvider{inner: newOggOpusReader(f), done: done})
-	select {
-	case <-done:
-		return nil
-	case <-time.After(ClipTimeout):
-		return ErrPlayTimeout
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -252,21 +247,72 @@ func waitDave(ctx context.Context, conn any) error {
 	return nil
 }
 
-// notifyingProvider closes done at io.EOF and plays silence after it: an empty frame makes disgo
-// v0.19.6 call SetSpeaking(None), which deadlocks against conn.Close and wedges gateway dispatch.
-type notifyingProvider struct {
-	inner voice.OpusFrameProvider
-	done  chan struct{}
-	once  sync.Once
+// stream is a visit's clips demuxed up front and played as one provider: each clip's packets, then
+// the next clip's gap as silence frames, then its packets. Past the last clip it plays silence
+// forever: an empty frame makes disgo v0.20.0 call SetSpeaking(None), which deadlocks against
+// conn.Close and wedges gateway dispatch. Only disgo's sender goroutine calls ProvideOpusFrame.
+type stream struct {
+	clips [][][]byte
+	gaps  []int    // silence frames before each clip; the first clip's gap is suspense's, so 0
+	ended chan int // each clip's index as its last packet goes out; holds them all, never blocks
+
+	clip, packet, silence int
 }
 
-func (p *notifyingProvider) ProvideOpusFrame() ([]byte, error) {
-	b, err := p.inner.ProvideOpusFrame()
-	if errors.Is(err, io.EOF) {
-		p.once.Do(func() { close(p.done) })
-		return voice.SilenceAudioFrame, nil
+// load reads and demuxes every clip, failing on the first that cannot be read.
+func load(clips []Clip) (*stream, error) {
+	st := &stream{clips: make([][][]byte, len(clips)), gaps: make([]int, len(clips)), ended: make(chan int, len(clips))}
+	for i, c := range clips {
+		b, err := os.ReadFile(c.File)
+		if err != nil {
+			return nil, fmt.Errorf("load %s: %w", c.File, err)
+		}
+		r := newOggOpusReader(bytes.NewReader(b))
+		for {
+			p, err := r.ProvideOpusFrame()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				return nil, fmt.Errorf("load %s: %w", c.File, err)
+			}
+			st.clips[i] = append(st.clips[i], p)
+		}
+		if i > 0 {
+			st.gaps[i] = int((c.Gap + frame - 1) / frame) // rounded up: a gap is never shorter than asked
+		}
 	}
-	return b, err
+	return st, nil
 }
 
-func (p *notifyingProvider) Close() { p.inner.Close() }
+// frame is how long disgo's sender spends on each frame it is handed.
+const frame = voice.OpusFrameSizeMs * time.Millisecond
+
+func (s *stream) ProvideOpusFrame() ([]byte, error) {
+	for s.clip < len(s.clips) {
+		if s.silence > 0 {
+			s.silence--
+			return voice.SilenceAudioFrame, nil
+		}
+		packets := s.clips[s.clip]
+		if s.packet < len(packets) {
+			p := packets[s.packet]
+			if s.packet++; s.packet == len(packets) {
+				s.next()
+			}
+			return p, nil
+		}
+		s.next() // a clip with no packets still ends
+	}
+	return voice.SilenceAudioFrame, nil
+}
+
+func (s *stream) next() {
+	s.ended <- s.clip
+	s.clip, s.packet = s.clip+1, 0
+	if s.clip < len(s.clips) {
+		s.silence = s.gaps[s.clip]
+	}
+}
+
+func (s *stream) Close() {}

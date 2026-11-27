@@ -45,10 +45,18 @@ func PlayFinished(log *events.Log) bus.Handler[bus.PlayFinished] {
 		log.RecordPlay(events.Play{
 			At: e.StartedAt, Guild: e.Guild, Channel: e.Channel, Sound: e.Sound, Trigger: e.Trigger,
 			User: e.User, ListenerIDs: e.Listeners, FledIDs: e.Fled, OK: e.OK, Reason: e.Reason, Duration: e.Duration,
-			Character: e.Character,
+			Character: e.Character, Suspense: e.Suspense, Sounds: playSounds(e.Sounds),
 		})
 		return nil
 	}
+}
+
+func playSounds(in []bus.PlaySound) []store.PlaySound {
+	out := make([]store.PlaySound, len(in))
+	for i, s := range in {
+		out[i] = store.PlaySound{Sound: s.Sound, Gap: s.Gap, Played: s.Played}
+	}
+	return out
 }
 
 // keyName is a stored column name, shared by the three records that carry one. The data keys are

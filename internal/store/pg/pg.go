@@ -180,6 +180,7 @@ func (s *Store) WritePlays(ctx context.Context, plays []store.Play) error {
 			At: make([]time.Time, n), GuildIds: make([]int64, n), ChannelIds: make([]int64, n), Sounds: make([]string, n),
 			Triggers: make([]string, n), UserIds: make([]int64, n), Listeners: make([]int16, n), Oks: make([]bool, n),
 			Reasons: make([]string, n), DurationsMs: make([]int32, n), Characters: make([]string, n),
+			SuspensesMs: make([]int32, n), Heards: make([]bool, n),
 		}
 		for i, pl := range plays {
 			p.At[i], p.GuildIds[i], p.ChannelIds[i], p.Sounds[i], p.Triggers[i] = pl.At, i64(pl.Guild), i64(pl.Channel), pl.Sound, pl.Trigger
@@ -190,26 +191,49 @@ func (s *Store) WritePlays(ctx context.Context, plays []store.Play) error {
 			}
 			p.Reasons[i], p.Characters[i] = pl.Reason, pl.Character
 			p.Listeners[i], p.Oks[i], p.DurationsMs[i] = small(len(pl.ListenerIDs)), pl.OK, i32(int(pl.Duration.Milliseconds()))
+			p.SuspensesMs[i] = i32(int(pl.Suspense.Milliseconds()))
+			p.Heards[i] = pl.Heard()
 		}
 		ids, err := q.InsertPlays(ctx, p)
 		if err != nil {
 			return err
 		}
-		var pairs []gen.InsertPlayListenersParams
-		for i, pl := range plays {
-			for _, u := range pl.ListenerIDs {
-				fled := slices.Contains(pl.FledIDs, u)
-				if !pl.OK && !fled {
-					continue
-				}
-				pairs = append(pairs, gen.InsertPlayListenersParams{PlayID: ids[i], UserID: i64(u), Fled: fled})
-			}
+		if _, err := q.InsertPlaySounds(ctx, playSounds(plays, ids)); err != nil { // COPY; every play has at least its opener
+			return err
 		}
-		if len(pairs) > 0 {
+		if pairs := listenerRows(plays, ids); len(pairs) > 0 {
 			_, err = q.InsertPlayListeners(ctx, pairs) // COPY
 		}
 		return err
 	})
+}
+
+// listenerRows is who heard or fled each of plays; a play where nothing played keeps only who fled.
+func listenerRows(plays []store.Play, ids []int64) []gen.InsertPlayListenersParams {
+	var out []gen.InsertPlayListenersParams
+	for i, pl := range plays {
+		for _, u := range pl.ListenerIDs {
+			fled := slices.Contains(pl.FledIDs, u)
+			if !fled && !pl.Heard() {
+				continue
+			}
+			out = append(out, gen.InsertPlayListenersParams{PlayID: ids[i], UserID: i64(u), Fled: fled})
+		}
+	}
+	return out
+}
+
+// playSounds is every clip of plays, keyed by the ids InsertPlays returned in the same order.
+func playSounds(plays []store.Play, ids []int64) []gen.InsertPlaySoundsParams {
+	var out []gen.InsertPlaySoundsParams
+	for i, pl := range plays {
+		for j, c := range pl.Clips() {
+			out = append(out, gen.InsertPlaySoundsParams{
+				PlayID: ids[i], Position: small(j), Sound: c.Sound, GapMs: i32(int(c.Gap.Milliseconds())), Played: c.Played,
+			})
+		}
+	}
+	return out
 }
 
 func (s *Store) WriteMisc(ctx context.Context, misc []store.Misc) error {

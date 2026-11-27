@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"math"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -81,22 +82,24 @@ type Registry struct {
 	pending  sync.Map // name → *time.Timer (debounce)
 
 	// Set by Arrange, under mu: a reloaded profile re-arranges a running registry.
-	chains    map[string]Chain // by opener
-	followers map[string]bool  // later steps of a chain, never drawn as a first sound
-	links     Links
+	chains Chains
+	links  Links
 }
 
-// Step is one sound of a chain and the silence before it, which the opener's step has none of.
-type Step struct {
-	Sound string
-	After time.Duration
+// Edge is one sound that may follow another in a visit, by weight, and the silence before it.
+type Edge struct {
+	Sound  string
+	Weight int
+	After  time.Duration
 }
 
-// Chain is sounds that play in one visit. Steps[0] is the opener; Chance is the % of the time the
-// rest follow it.
-type Chain struct {
-	Chance int
-	Steps  []Step
+// Chains is the graph a visit walks after its first sound. At hop n it goes on with odds
+// Chance × Decay^n percent, never past MaxHops; Next holds each sound's children in profile order.
+type Chains struct {
+	Chance  int
+	Decay   float64
+	MaxHops int
+	Next    map[string][]Edge
 }
 
 // Links steers an encore: from a sound, to the sounds that may come back after it, by weight.
@@ -110,16 +113,9 @@ type Clip struct {
 }
 
 // Arrange sets the chains and links, replacing any it had.
-func (r *Registry) Arrange(chains []Chain, links Links) {
-	byOpener, followers := map[string]Chain{}, map[string]bool{}
-	for _, c := range chains {
-		byOpener[c.Steps[0].Sound] = c
-		for _, s := range c.Steps[1:] {
-			followers[s.Sound] = true
-		}
-	}
+func (r *Registry) Arrange(chains Chains, links Links) {
 	r.mu.Lock()
-	r.chains, r.followers, r.links = byOpener, followers, links
+	r.chains, r.links = chains, links
 	r.mu.Unlock()
 }
 
@@ -288,7 +284,7 @@ func (r *Registry) draw(nsfw bool) (string, bool) {
 	names := make([]string, 0, len(r.files))
 	total := 0
 	for n, e := range r.files {
-		if !e.allowed(nsfw) || r.followers[n] {
+		if !e.allowed(nsfw) {
 			continue
 		}
 		names = append(names, n)
@@ -349,29 +345,41 @@ func (r *Registry) Collection(heard []string, nsfw bool) Collection {
 
 // PickOther is Pick without one name, for an encore that must not repeat the visit before it.
 func (r *Registry) PickOther(name string, nsfw bool) (string, bool) {
-	names := r.Names(nsfw)
-	r.mu.RLock()
-	names = slices.DeleteFunc(names, func(n string) bool { return n == name || r.followers[n] })
-	r.mu.RUnlock()
+	names := slices.DeleteFunc(r.Names(nsfw), func(n string) bool { return n == name })
 	if len(names) == 0 {
 		return "", false
 	}
 	return names[rand.IntN(len(names))], true
 }
 
-// Follow rolls opener's chain and returns the steps that play after it: none without a chain or
-// when the roll fails. A step that is missing or may not play here is skipped, gap and all.
+// Follow walks the chains from opener and returns the clips that play after it. Each hop rolls its
+// decayed odds, then picks a child by weight among those that can play here; the walk ends on a
+// failed roll, a sound with no child that can play, or MaxHops. Loops are allowed.
 func (r *Registry) Follow(opener string, nsfw bool) []Clip {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	c, ok := r.chains[opener]
-	if !ok || r.intN(100) >= c.Chance {
-		return nil
-	}
+	c := r.chains
 	var out []Clip
-	for _, s := range c.Steps[1:] {
-		if e, ok := r.files[s.Sound]; ok && e.allowed(nsfw) {
-			out = append(out, Clip{Name: s.Sound, Path: e.path, After: s.After})
+	cur := opener
+	for hop := range c.MaxHops {
+		var edges []Edge
+		total := 0
+		for _, e := range c.Next[cur] {
+			if f, ok := r.files[e.Sound]; ok && f.allowed(nsfw) {
+				edges = append(edges, e)
+				total += e.Weight
+			}
+		}
+		if total == 0 || float64(r.intN(100)) >= float64(c.Chance)*math.Pow(c.Decay, float64(hop)) {
+			break
+		}
+		x := r.intN(total)
+		for _, e := range edges {
+			if x -= e.Weight; x < 0 {
+				out = append(out, Clip{Name: e.Sound, Path: r.files[e.Sound].path, After: e.After})
+				cur = e.Sound
+				break
+			}
 		}
 	}
 	return out

@@ -23,16 +23,26 @@ suspense = 0     # max seconds of silence before the sound; 0-20
 fakeout  = 0     # % of visits that leave without a sound; 0-50
 encore   = 0     # % of visits that come back for a second sound; 0-50
 
-# Sounds that play together in one visit: the bot stays in the channel from the first step to the
-# last. The first step is picked like any sound; later ones are never picked first, but /play still
-# reaches them. A step's sound is its file name without tags or .ogg. Repeat [[chains]] per chain.
+# Sounds that play together in one visit: the bot stays in the channel from the first sound to the
+# last. After any sound with a [[chains]] entry, the bot may go on to one of its next sounds, picked
+# by weight, then again from that one, and so on; loops are fine. Each hop's odds are chance x decay^hop.
+# A sound is its file name without tags or .ogg; every sound can still be picked first.
+[chaining]
+chance   = 80   # % odds of going on at the first hop; 0-100, default 100
+decay    = 0.7  # each hop multiplies those odds by this; 0-1, default 1 (no decay)
+max_hops = 8    # never more sounds after the first than this; 1-20, default 8
+
+# Repeat [[chains]] per sound that leads somewhere.
 [[chains]]
-chance = 80   # % of the time the rest follow the first step; 0-100, default 100
-steps  = [
-  { sound = "knock" },
-  { sound = "whos_there", after = 2 },   # seconds of silence before it, still in the channel; 0-20, fractions to the ms (0.4)
-  { sound = "rimshot" },                 # no after: straight back to back
+sound = "knock"
+next  = [
+  { sound = "whos_there", weight = 70, after = 2 },   # after: seconds of silence before it, still in the channel; 0-20, fractions to the ms (0.4)
+  { sound = "rimshot",    weight = 30 },              # no after: straight back to back
 ]
+
+[[chains]]
+sound = "whos_there"
+next  = [{ sound = "knock", weight = 1, after = 0.5 }]
 
 # What an encore comes back with after a sound, by weight, instead of any other sound.
 [[links]]

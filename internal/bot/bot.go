@@ -228,16 +228,17 @@ func NewPlayer(c *bot.Client, chars *characters.Set, set *settings.Store, quiet,
 		if !ok {
 			return // raced a deletion; nothing happened
 		}
-		clips, last := []voice.Clip{{File: file}}, sound
+		clips, plan, last := []voice.Clip{{File: file}}, []bus.PlaySound{{Sound: sound}}, sound
 		if !e.FakeOut {
 			for _, f := range reg.Follow(sound, nsfw) {
 				clips = append(clips, voice.Clip{File: f.Path, Gap: f.After})
+				plan = append(plan, bus.PlaySound{Sound: f.Name, Gap: f.After})
 				last = f.Name
 			}
 		}
 		ctx, cancel := context.WithTimeout(ctx, timeout(clips))
 		defer cancel()
-		if err := play(ctx, c, b, e, ch.ID, sound, clips); !encoreDue(e, err) {
+		if err := play(ctx, c, b, e, ch.ID, sound, clips, plan); !encoreDue(e, err) {
 			return
 		}
 		if next, ok := reg.Encore(last, nsfw); ok {
@@ -274,7 +275,7 @@ func previewPlay(ctx context.Context, c *bot.Client, b *bus.Bus, e *PlayRequest,
 	clips[0].Gap = 0
 	ctx, cancel := context.WithTimeout(ctx, timeout(clips))
 	defer cancel()
-	if err := play(ctx, c, b, e, ch.ID, e.Preview[0], clips); err != nil {
+	if err := play(ctx, c, b, e, ch.ID, e.Preview[0], clips, nil); err != nil { // a preview is never recorded
 		slog.Debug("preview: did not play", slog.Any("guild", e.Guild), slog.Any("err", err)) // play warned already
 	}
 }
