@@ -249,7 +249,7 @@ func waitDave(ctx context.Context, conn any) error {
 
 // stream is a visit's clips demuxed up front and played as one provider: each clip's packets, then
 // the next clip's gap as silence frames, then its packets. Past the last clip it plays silence
-// forever: an empty frame makes disgo v0.19.6 call SetSpeaking(None), which deadlocks against
+// forever: an empty frame makes disgo v0.20.0 call SetSpeaking(None), which deadlocks against
 // conn.Close and wedges gateway dispatch. Only disgo's sender goroutine calls ProvideOpusFrame.
 type stream struct {
 	clips [][][]byte

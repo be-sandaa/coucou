@@ -103,7 +103,7 @@ func TestStreamSignalsEachClipsEnd(t *testing.T) {
 	}
 }
 
-// Past the last clip it plays silence, never an empty frame: disgo v0.19.6 answers an empty frame
+// Past the last clip it plays silence, never an empty frame: disgo v0.20.0 answers an empty frame
 // with SetSpeaking(None), which deadlocks against conn.Close and wedges gateway dispatch.
 func TestStreamNeverEndsWithAnEmptyFrame(t *testing.T) {
 	s := loaded(t, Clip{File: oggFile(t, t.TempDir(), "a")})
