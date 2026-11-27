@@ -15,11 +15,11 @@ import (
 	"time"
 
 	dbot "github.com/disgoorg/disgo/bot"
+	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/be-sandaa/coucou/internal/bot"
 	"github.com/be-sandaa/coucou/internal/bus"
-	"github.com/be-sandaa/coucou/internal/bus/handlers"
 	"github.com/be-sandaa/coucou/internal/chaos"
 	"github.com/be-sandaa/coucou/internal/characters"
 	"github.com/be-sandaa/coucou/internal/commands"
@@ -165,6 +165,8 @@ func serve(cfg config, chars *characters.Set, build Build) error {
 	r.Add(func(context.Context) error { p.live.Store(true); return nil }, nil)
 	// After the log, so plays drain before its last flush and a play cut off by shutdown is recorded.
 	r.Add(nil, p.pool.Close)
+	// After the pool: a join stops before the plays it might start drain.
+	r.Add(p.guilds.Run, p.guilds.Close)
 	r.Add(p.bus.Run, p.bus.Close)
 	// Open, then reconcile, in that order and in one func. OpenShardManager returns once every
 	// shard has had its READY, which makes the line after it the first moment the cache holds a
@@ -214,6 +216,7 @@ type parts struct {
 	bus      *bus.Bus
 	events   *ev.Log
 	pool     *bot.Pool
+	guilds   *bot.GuildWorker
 	live     *atomic.Bool
 	loop     *bot.Loop
 	optouts  *silence.Store
@@ -303,29 +306,12 @@ func assemble(r *run.Runner, cfg config, chars *characters.Set, db store.Store) 
 	// more, which is why two of them take the client and the rest do not.
 	// The guild reconcile is not here. It needs every shard to have reported, which no gateway
 	// event says — serve sequences it after OpenShardManager instead. See bot.SyncGuilds.
-	// The gateway is a watermill subscriber: its listeners push Discord's own payloads onto
-	// discord.* topics, and handlers consume them through the same router and middleware as
-	// everything else. Interactions are the exception and stay synchronous — three seconds is not
-	// enough for a delivery that retries.
-	gw := bot.NewGateway()
-	client.AddEventListeners(slices.Concat(gw.Listeners(), cmds.Listeners(),
+	// Live guild joins and leaves go to one worker, off the gateway's dispatch goroutine: a join
+	// writes to the database with retries, and a wedged dispatch stalls every shard. Interactions
+	// stay synchronous — they have three seconds to answer.
+	guilds := guildWorker(log, db, set, chars.Default().Defaults, persona, cmds)
+	client.AddEventListeners(slices.Concat(guilds.Listeners(), cmds.Listeners(),
 		[]dbot.EventListener{ready.OnReady(), pulse.OnHeartbeatAck()})...)
-
-	// And everything going the other way. The two blocks together are every edge of the system:
-	// gateway in above, bus out below.
-	//
-	// The fan-out map of the whole bot. It lives here, not inside the handlers package, so each one
-	// declares exactly what it acts on; the cost is that a new handler has to be added here too and
-	// nothing but review will notice if it is not.
-	//
-	// These names label the bus metrics and spans. Don't rename them casually.
-	bus.OnTopic(eb, gw, "stats-guilds-join", bot.TopicGuildCreate, handlers.GuildJoinedStats(log))
-	bus.OnTopic(eb, gw, "stats-guilds-leave", bot.TopicGuildDelete, handlers.GuildLeftStats(log))
-
-	bus.OnTopic(eb, gw, "guild-sync-join", bot.TopicGuildCreate, handlers.GuildJoinedSync(db, set, chars.Default().Defaults))
-	bus.OnTopic(eb, gw, "guild-sync-leave", bot.TopicGuildDelete, handlers.GuildLeftSync(db))
-	bus.OnTopic(eb, gw, "persona-join", bot.TopicGuildCreate, handlers.GuildJoinedPersona(persona.Push))
-	bus.OnTopic(eb, gw, "welcome-join", bot.TopicGuildCreate, cmds.Welcome)
 
 	metrics.ObserveGuilds(func() int { return len(set.Configured()) })
 	metrics.ObserveSounds(chars.Len)
@@ -338,6 +324,7 @@ func assemble(r *run.Runner, cfg config, chars *characters.Set, db store.Store) 
 		pulse:    pulse,
 		bus:      eb,
 		events:   log,
+		guilds:   guilds,
 		pool:     pool,
 		live:     live,
 		loop:     bot.NewLoop(client, set, chars, player, opt, quiet, cha),
@@ -396,4 +383,29 @@ func soundRecorder(ctx context.Context, log *ev.Log, live *atomic.Bool, characte
 		}
 		log.SoundChanged(ctx, character, name, added)
 	}
+}
+
+// guildWorker is what a live join and leave cause, in order. Only the database sync retries: the
+// boot reconcile repairs a write that gave up, and a retried welcome could post twice.
+func guildWorker(log *ev.Log, db store.Store, set *settings.Store, d store.Defaults, persona *bot.Persona, cmds *commands.Commands) *bot.GuildWorker {
+	joinSync, leaveSync := bot.GuildJoinedSync(db, set, d), bot.GuildLeftSync(db)
+	return bot.NewGuildWorker(
+		func(ctx context.Context, g *discord.GatewayGuild) {
+			log.GuildJoined(ctx, g.ID, g.MemberCount)
+			if err := bot.Retry(ctx, bot.SyncBudget, func(ctx context.Context) error { return joinSync(ctx, g) }); err != nil {
+				slog.Error("guilds: join sync gave up", slog.String("guild", g.ID.String()), slog.Any("err", err))
+			}
+			// After the sync: the persona reads the settings row it seeds.
+			persona.Push(g.ID)
+			if err := cmds.Welcome(ctx, g); err != nil {
+				slog.Warn("guilds: welcome", slog.String("guild", g.ID.String()), slog.Any("err", err))
+			}
+		},
+		func(ctx context.Context, g *discord.Guild) {
+			log.GuildLeft(ctx, g.ID, false)
+			if err := bot.Retry(ctx, bot.SyncBudget, func(ctx context.Context) error { return leaveSync(ctx, g) }); err != nil {
+				slog.Error("guilds: leave sync gave up", slog.String("guild", g.ID.String()), slog.Any("err", err))
+			}
+		},
+	)
 }

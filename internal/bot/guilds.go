@@ -164,3 +164,39 @@ func shardCount(c *bot.Client) int {
 	}
 	return n
 }
+
+// GuildJoinedSync keeps the guilds table and the settings seed in step with Discord, and fills in a
+// zone guessed from the guild's locale if it has none.
+// d seeds a guild that has no settings row yet; a guild overrides each value with its command, and
+// seeding never overwrites a row that already exists.
+func GuildJoinedSync(db store.Store, set *settings.Store, d store.Defaults) func(context.Context, *discord.GatewayGuild) error {
+	return func(ctx context.Context, g *discord.GatewayGuild) error {
+		if err := db.UpsertGuilds(ctx, []store.Guild{{ID: g.ID, JoinedAt: g.JoinedAt}}); err != nil {
+			return err // retried by the guild worker
+		}
+		if err := db.SeedSettingsFor(ctx, g.ID, d); err != nil {
+			return err
+		}
+		// A guild coming back already has its row, and the mirror with it: writing the defaults over
+		// it here would undo the seed's do-not-overwrite rule.
+		if d != (store.Defaults{}) && !set.Known(g.ID) {
+			// Actor zero: nobody asked for this, the bot is applying its own defaults.
+			if _, err := set.Update(ctx, g.ID, 0, func(s *settings.Settings) {
+				s.Chance, s.Suspense, s.FakeOut, s.Encore = d.Chance, d.Suspense, d.FakeOut, d.Encore
+			}); err != nil {
+				return err
+			}
+		}
+		// The join payload carries the locale, so the zone is filled in now rather than at the next
+		// boot. A guild coming back keeps the zone it had.
+		_, err := set.FillZones(ctx, map[snowflake.ID]discord.Locale{g.ID: discord.Locale(g.PreferredLocale)})
+		return err
+	}
+}
+
+// GuildLeftSync marks a guild left while we watched; a boot reconcile writes its own rows.
+func GuildLeftSync(db store.Store) func(context.Context, *discord.Guild) error {
+	return func(ctx context.Context, g *discord.Guild) error {
+		return db.MarkGuildLeft(ctx, g.ID)
+	}
+}
