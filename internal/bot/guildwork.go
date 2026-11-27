@@ -32,8 +32,9 @@ type GuildWorker struct {
 	onLeave func(context.Context, *discord.Guild)
 	jobs    chan guildJob
 	stop    chan struct{}
-	once    sync.Once
 	running sync.WaitGroup
+	mu      sync.Mutex // holds Run's Add and Close apart, so a Run after Close runs nothing
+	closed  bool
 }
 
 func NewGuildWorker(join func(context.Context, *discord.GatewayGuild), leave func(context.Context, *discord.Guild)) *GuildWorker {
@@ -64,16 +65,26 @@ func (w *GuildWorker) enqueue(j guildJob) {
 	}
 }
 
-// Run works the queue until ctx is cancelled or Close is called, finishing the job in hand.
+// Run works the queue until Close, not until ctx is cancelled: the runner cancels ctx at the
+// signal, while the shards are still open and can still hand it a join.
 func (w *GuildWorker) Run(ctx context.Context) error {
+	w.mu.Lock()
+	if w.closed {
+		w.mu.Unlock()
+		return nil
+	}
 	w.running.Add(1)
+	w.mu.Unlock()
 	defer w.running.Done()
 	for {
+		select { // stop first: once both are ready, the select below would pick at random
+		case <-w.stop:
+			return nil
+		default:
+		}
 		select {
 		case j := <-w.jobs:
 			w.do(context.WithoutCancel(ctx), j)
-		case <-ctx.Done():
-			return nil
 		case <-w.stop:
 			return nil
 		}
@@ -94,7 +105,12 @@ func (w *GuildWorker) do(ctx context.Context, j guildJob) {
 
 // Close stops intake and waits, within ctx, for the job in hand.
 func (w *GuildWorker) Close(ctx context.Context) error {
-	w.once.Do(func() { close(w.stop) })
+	w.mu.Lock()
+	if !w.closed {
+		w.closed = true
+		close(w.stop)
+	}
+	w.mu.Unlock()
 	done := make(chan struct{})
 	go func() { defer close(done); w.running.Wait() }() // ends when Run does
 	select {

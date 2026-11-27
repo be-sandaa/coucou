@@ -110,3 +110,14 @@ func TestPoolRecoversAPanic(t *testing.T) {
 		t.Fatal("the slot a panicking body held was never freed")
 	}
 }
+
+// Once shutdown has begun a play is refused: one started after the drain would be cut off unrecorded.
+func TestPoolRefusesAfterClose(t *testing.T) {
+	p := NewPool(1)
+	if err := p.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Go(context.Background(), func(context.Context) { t.Error("ran after Close") }); !errors.Is(err, ErrShuttingDown) {
+		t.Errorf("Go = %v, want ErrShuttingDown", err)
+	}
+}

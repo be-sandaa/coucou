@@ -193,3 +193,40 @@ func TestRetryStopsOnCancel(t *testing.T) {
 		t.Errorf("Retry = %v after %d calls, want an error after 1", err, n)
 	}
 }
+
+// The runner cancels ctx at the signal, before the shards close: a join that lands in between
+// still runs, because the worker stops at Close, not at the signal.
+func TestGuildWorkerRunsUntilClosed(t *testing.T) {
+	c := &calls{}
+	w := NewGuildWorker(func(_ context.Context, g *discord.GatewayGuild) { c.add("join " + g.ID.String()) }, func(context.Context, *discord.Guild) {})
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	go func() {
+		if err := w.Run(ctx); err != nil {
+			t.Error(err)
+		}
+	}()
+	w.join(gatewayGuild(3, time.Time{}))
+	waitFor(t, c, 1)
+	if err := w.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A Run that starts after Close runs nothing: Close has already stopped waiting for it.
+func TestGuildWorkerRunAfterCloseRunsNothing(t *testing.T) {
+	for range 20 { // Run's select picks among ready cases at random
+		ran := false
+		w := NewGuildWorker(func(context.Context, *discord.GatewayGuild) { ran = true }, func(context.Context, *discord.Guild) {})
+		w.join(gatewayGuild(4, time.Time{}))
+		if err := w.Close(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		if err := w.Run(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		if ran {
+			t.Fatal("a job ran after Close")
+		}
+	}
+}
